@@ -1,0 +1,36 @@
+name: dineflow
+description: "DineFlow - App Flutter quan ly nha hang (ket noi REST API Laravel)."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  intl: ^0.19.0
+  http: ^1.6.0
+  shared_preferences: ^2.5.6
+  url_launcher: ^6.3.1
+  # QR thẻ thành viên (khách) và quét QR (thu ngân) — nhóm đã duyệt 23/10/2026
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^7.4.2
+  # PDF hóa đơn — nhóm đã duyệt 03/11/2026
+  # pdf: tạo file PDF thuần Dart (không cần thư viện native)
+  # printing: cầu nối PDF sang máy in + share sheet iOS/Android/desktop
+  pdf: ^3.11.1
+  printing: ^5.13.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/data/
+    - assets/images/foods/

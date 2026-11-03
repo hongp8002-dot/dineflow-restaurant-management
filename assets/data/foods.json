@@ -1,0 +1,167 @@
+[
+  {
+    "id": "f1",
+    "categoryId": "c1",
+    "name": "Cà phê sữa đá",
+    "price": 29000,
+    "description": "Cà phê phin truyền thống pha cùng sữa đặc, đá viên mát lạnh.",
+    "image": "assets/images/foods/ca_phe_sua_da.png",
+    "icon": "coffee",
+    "color": "#8B5A2B",
+    "rating": 4.8,
+    "isBestSeller": true,
+    "options": ["size"]
+  },
+  {
+    "id": "f2",
+    "categoryId": "c1",
+    "name": "Bạc xỉu",
+    "price": 32000,
+    "description": "Vị cà phê nhẹ nhàng hòa quyện cùng sữa tươi béo ngậy.",
+    "image": "assets/images/foods/bac_xiu.png",
+    "icon": "coffee",
+    "color": "#B08968",
+    "rating": 4.6,
+    "options": ["size"]
+  },
+  {
+    "id": "f3",
+    "categoryId": "c1",
+    "name": "Espresso",
+    "price": 35000,
+    "description": "Cà phê nguyên chất đậm đà, chiết xuất từ máy espresso.",
+    "image": "assets/images/foods/espresso.png",
+    "icon": "local_cafe",
+    "color": "#5C3A21",
+    "rating": 4.4
+  },
+  {
+    "id": "f4",
+    "categoryId": "c2",
+    "name": "Trà đào cam sả",
+    "price": 39000,
+    "description": "Trà đào thơm mát kết hợp cam tươi và sả.",
+    "image": "assets/images/foods/tra_dao_cam_sa.png",
+    "icon": "emoji_food_beverage",
+    "color": "#E8A22C",
+    "rating": 4.7,
+    "isBestSeller": true,
+    "options": ["size", "topping"]
+  },
+  {
+    "id": "f5",
+    "categoryId": "c2",
+    "name": "Trà sữa trân châu",
+    "price": 35000,
+    "description": "Trà sữa béo thơm cùng trân châu đường đen dẻo dai.",
+    "image": "assets/images/foods/tra_sua_tran_chau.png",
+    "icon": "emoji_food_beverage",
+    "color": "#C08552",
+    "rating": 4.9,
+    "isBestSeller": true,
+    "options": ["size", "topping"]
+  },
+  {
+    "id": "f6",
+    "categoryId": "c2",
+    "name": "Trà chanh",
+    "price": 25000,
+    "description": "Trà chanh mật ong giải khát, chua ngọt hài hòa.",
+    "image": "assets/images/foods/tra_chanh.png",
+    "icon": "emoji_food_beverage",
+    "color": "#A8C66C",
+    "rating": 4.3
+  },
+  {
+    "id": "f7",
+    "categoryId": "c3",
+    "name": "Nước ép cam",
+    "price": 35000,
+    "description": "Cam tươi ép nguyên chất, giàu vitamin C.",
+    "image": "assets/images/foods/nuoc_cam.png",
+    "icon": "local_bar",
+    "color": "#F2994A",
+    "rating": 4.5
+  },
+  {
+    "id": "f8",
+    "categoryId": "c3",
+    "name": "Sinh tố bơ",
+    "price": 42000,
+    "description": "Bơ sáp xay cùng sữa đặc, sánh mịn béo ngậy.",
+    "image": "assets/images/foods/sinh_to_bo.png",
+    "icon": "local_bar",
+    "color": "#6B8E23",
+    "rating": 4.6
+  },
+  {
+    "id": "f9",
+    "categoryId": "c4",
+    "name": "Cơm sườn nướng",
+    "price": 55000,
+    "description": "Cơm tấm sườn nướng mật ong ăn kèm đồ chua, trứng ốp la.",
+    "image": "assets/images/foods/com_suon_nuong.png",
+    "icon": "rice_bowl",
+    "color": "#D8433D",
+    "rating": 4.7,
+    "isBestSeller": true
+  },
+  {
+    "id": "f10",
+    "categoryId": "c4",
+    "name": "Mì Ý sốt bò bằm",
+    "price": 65000,
+    "description": "Mì Ý sốt cà chua bò bằm đậm đà, phô mai bào.",
+    "image": "assets/images/foods/mi_y_sot_bo_bam.png",
+    "icon": "dinner_dining",
+    "color": "#C94D1C",
+    "rating": 4.5
+  },
+  {
+    "id": "f11",
+    
+    "categoryId": "c5",
+    "name": "Khoai tây chiên",
+    "price": 32000,
+    "description": "Khoai tây chiên giòn rụm, ăn kèm sốt phô mai.",
+    "image": "assets/images/foods/khoai_tay_chien.png",
+    "icon": "tapas",
+    "color": "#E8A22C",
+    "rating": 4.4
+  },
+  {
+    "id": "f12",
+    "categoryId": "c5",
+    "name": "Gà cánh chiên nước mắm",
+    "price": 48000,
+    "description": "Cánh gà chiên giòn áo sốt nước mắm tỏi ớt.",
+    "image": "assets/images/foods/ga_canh_chien_nuoc_mam.png",
+    "icon": "tapas",
+    "color": "#E8622C",
+    "rating": 4.8,
+    "isBestSeller": true
+  },
+  {
+    "id": "f13",
+    "categoryId": "c6",
+    "name": "Bánh flan",
+    "price": 22000,
+    "description": "Bánh flan caramel mềm mịn, thơm vị trứng sữa.",
+    "image": "assets/images/foods/banh_flan.png",
+    "icon": "icecream",
+    "color": "#F2C94C",
+    "rating": 4.6
+  },
+  {
+    "id": "f14",
+    "categoryId": "c6",
+    "name": "Tiramisu",
+    "price": 38000,
+    "description": "Bánh tiramisu vị cà phê nguyên bản kiểu Ý.",
+    "image": "assets/images/foods/tiramisu.png",
+    "icon": "icecream",
+    "color": "#6B4423",
+    "rating": 4.7,
+    "isAvailable": false
+  }
+]

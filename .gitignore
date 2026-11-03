@@ -1,0 +1,27 @@
+# Flutter/Dart
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+*.g.dart
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Platform folders (được sinh ra bởi `flutter create .`)
+# Bỏ comment các dòng dưới nếu bạn không muốn commit code nền tảng:
+# android/
+# ios/
+# web/
+# linux/
+# macos/
+# windows/
+
+# Env / secrets - KHÔNG BAO GIỜ commit
+.env
+*.env
