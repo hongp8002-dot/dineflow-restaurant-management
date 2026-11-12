@@ -7,6 +7,7 @@ import '../../core/api/api_exception.dart';
 import '../../data/app_data.dart';
 import '../../data/invoice_repository.dart';
 import '../../data/loyalty_rules.dart';
+//import '../../data/member_repository.dart';
 import '../../data/mock_data.dart';
 import '../../data/order_staff_repository.dart';
 import '../../models/customer.dart';
@@ -25,6 +26,20 @@ import '../../widgets/labeled_value_row.dart';
 import '../../widgets/live_data.dart';
 import '../../widgets/order_items_card.dart';
 
+// ─── Thông tin tài khoản ngân hàng demo ─────────────────────────────────────
+// TODO (production): đọc từ cấu hình server thay vì hardcode.
+const _kCashierBankId = 'VCB';
+const _kCashierBankName = 'VCB – Vietcombank';
+const _kCashierAccountNo = '1234567890';
+const _kCashierAccountName = 'DINEFLOW RESTAURANT';
+
+String _cashierQrUrl(double amount, String refCode) {
+  final note = Uri.encodeComponent('Thanh toan $refCode DineFlow');
+  final accName = Uri.encodeComponent(_kCashierAccountName);
+  return 'https://img.vietqr.io/image/$_kCashierBankId-$_kCashierAccountNo-compact2.png'
+      '?amount=${amount.toInt()}&addInfo=$note&accountName=$accName';
+}
+
 /// Màn hình thanh toán – Quy tắc Kiểu A:
 ///
 /// - Không dùng điểm để trừ tiền.
@@ -32,6 +47,7 @@ import '../../widgets/order_items_card.dart';
 /// - Thu ngân có thể gắn khách thành viên bằng QR hoặc nhập mã để áp giảm hạng.
 /// - Server tính lại và cộng điểm khi xác nhận.
 /// - Thu ngân có thể Huỷ đơn (chỉ đơn chưa thanh toán).
+/// - Tiền cọc (đặt bàn kèm món trước) được hiển thị và khấu trừ vào tổng cuối.
 class PaymentScreen extends StatefulWidget {
   final String orderId;
   const PaymentScreen({super.key, required this.orderId});
@@ -110,7 +126,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
   Future<void> _cancel(Order order) async {
     if (_cancelling) return;
 
-    // Hiện dialog xác nhận trước khi huỷ.
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -142,7 +157,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     try {
       await OrderStaffRepository.instance.cancelOrder(order.id);
       unawaited(AppData.refresh({LiveSource.orders, LiveSource.tables}, force: true));
-      navigator.pop(); // Quay lại màn hình trước
+      navigator.pop();
       messenger.showSnackBar(
         SnackBar(content: Text('Đã huỷ đơn #${order.displayCode}')),
       );
@@ -175,11 +190,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
     final subtotal = order.subtotal;
 
-    // Lọc khuyến mãi phù hợp với giá trị đơn hiện tại từ danh sách tải từ API.
     final applicablePromotions = _promotions.where((p) => p.appliesTo(subtotal)).toList();
     final promotion = applicablePromotions.any((p) => p.id == _promotion?.id) ? _promotion : null;
 
-    // Tính giảm theo hạng (dựa trên điểm khách biết được ở app)
     final member = _member;
     double tierDiscount = 0;
     int tierPercent = 0;
@@ -189,13 +202,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
 
     final promoDiscount = promotion?.discountFor(subtotal) ?? 0.0;
-
-    // Hiển thị mức giảm cao hơn (server sẽ xác nhận lại)
     final discount = (tierDiscount > promoDiscount) ? tierDiscount : promoDiscount;
     final usingTierDiscount = tierDiscount > promoDiscount && tierDiscount > 0;
-    final total = (subtotal - discount).clamp(0, double.infinity);
 
-    // Nếu hạng thắng, không gửi promotion_code lên server
+    final depositAmount = order.depositAmount;
+    // clamp(0.0, ...) thay vì clamp(0, ...) để Dart suy ra kiểu double thay vì num.
+    final total = (subtotal - discount - depositAmount).clamp(0.0, double.infinity);
+
     final effectivePromotion = usingTierDiscount ? null : promotion;
 
     var step = 0;
@@ -286,6 +299,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
                           value: '-${AppFormatters.currency(discount)}',
                           animateValue: true,
                         ),
+                      if (depositAmount > 0)
+                        LabeledValueRow(
+                          label: 'Đã cọc (đặt bàn)',
+                          value: '-${AppFormatters.currency(depositAmount)}',
+                          animateValue: true,
+                        ),
                       const SizedBox(height: 8),
                       const DashedDivider(),
                       const SizedBox(height: 10),
@@ -353,6 +372,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     ],
                   ],
                 )),
+                const SizedBox(height: 14),
+
+                // ── Panel QR hoặc Thẻ (hiện khi chọn tương ứng) ─────────
+                if (_method == PaymentMethod.qr)
+                  appear(_CashierQrPanel(amount: total, orderCode: order.displayCode)),
+                if (_method == PaymentMethod.card)
+                  appear(const _CardPaymentPanel()),
                 const SizedBox(height: 24),
               ],
             ),
@@ -369,7 +395,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     onPressed: _cancelling ? null : () => _pay(order, promotion: effectivePromotion),
                   ),
                   const SizedBox(height: 10),
-                  // Nút huỷ đơn — chỉ khi chưa thanh toán (nghĩa là đơn đang ở màn hình này).
                   AppButton(
                     label: 'Huỷ đơn',
                     icon: Icons.cancel_outlined,
@@ -387,7 +412,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
     );
   }
 
-  /// Thẻ thành viên: hiển thị nếu đã quét, hoặc nút "Quét QR".
   Widget _buildMemberSection(Order order, Customer? member) {
     if (member != null) {
       final tier = LoyaltyRules.tierFor(member.points);
@@ -433,7 +457,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
       );
     }
 
-    // Chưa gắn khách
     return PressScale(
       onTap: () => _scanMember(order),
       scale: 0.97,
@@ -459,13 +482,345 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Panel QR chuyển khoản (Thu ngân)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _CashierQrPanel extends StatelessWidget {
+  final double amount;
+  final String orderCode;
+
+  const _CashierQrPanel({required this.amount, required this.orderCode});
+
+  @override
+  Widget build(BuildContext context) {
+    final qrUrl = _cashierQrUrl(amount, orderCode);
+    final noteText = 'Thanh toan $orderCode DineFlow';
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        children: [
+          Row(children: [
+            Icon(Icons.account_balance_rounded, size: 18, color: AppColors.textPrimary),
+            const SizedBox(width: 8),
+            Text(
+              'Khách quét QR thanh toán',
+              style: TextStyle(
+                  fontWeight: FontWeight.w800, fontSize: 15, color: AppColors.textPrimary),
+            ),
+          ]),
+          const SizedBox(height: 16),
+          Center(
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.black12, blurRadius: 12, offset: const Offset(0, 4)),
+                ],
+              ),
+              child: Image.network(
+                qrUrl,
+                width: 200,
+                height: 200,
+                fit: BoxFit.contain,
+                loadingBuilder: (ctx, child, prog) {
+                  if (prog == null) return child;
+                  return const SizedBox(
+                    width: 200,
+                    height: 200,
+                    child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  );
+                },
+                errorBuilder: (ctx, _, __) => Container(
+                  width: 200,
+                  height: 200,
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceAlt,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.qr_code_2_rounded,
+                          size: 72, color: AppColors.textSecondary),
+                      const SizedBox(height: 8),
+                      Text('Không tải được QR',
+                          style: TextStyle(
+                              fontSize: 12, color: AppColors.textSecondary)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          _InfoRowQ(label: 'Ngân hàng', value: _kCashierBankName),
+          const SizedBox(height: 8),
+          _InfoRowQ(label: 'Số TK', value: _kCashierAccountNo),
+          const SizedBox(height: 8),
+          _InfoRowQ(label: 'Chủ TK', value: _kCashierAccountName),
+          const SizedBox(height: 8),
+          _InfoRowQ(
+              label: 'Số tiền',
+              value: AppFormatters.currency(amount),
+              highlight: true),
+          const SizedBox(height: 8),
+          _InfoRowQ(label: 'Nội dung', value: noteText),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppColors.primaryLight,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(children: [
+              Icon(Icons.info_outline_rounded, size: 16, color: AppColors.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Yêu cầu khách quét mã QR bằng app ngân hàng. '
+                  'Nhập đúng nội dung chuyển khoản để hệ thống xác nhận.',
+                  style: TextStyle(
+                      fontSize: 12, color: AppColors.textPrimary, height: 1.4),
+                ),
+              ),
+            ]),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoRowQ extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool highlight;
+
+  const _InfoRowQ(
+      {required this.label, required this.value, this.highlight = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 76,
+          child: Text(label,
+              style:
+                  TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight:
+                  highlight ? FontWeight.w800 : FontWeight.w600,
+              color: highlight
+                  ? AppColors.primary
+                  : AppColors.textPrimary,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Panel hướng dẫn thanh toán thẻ (POS)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _CardPaymentPanel extends StatelessWidget {
+  const _CardPaymentPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(Icons.credit_card_rounded,
+                size: 18, color: AppColors.textPrimary),
+            const SizedBox(width: 8),
+            Text(
+              'Thanh toán qua máy POS',
+              style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                  color: AppColors.textPrimary),
+            ),
+          ]),
+          const SizedBox(height: 16),
+          Center(
+            child: Container(
+              width: 230,
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+              decoration: BoxDecoration(
+                color: AppColors.ink,
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.black26,
+                      blurRadius: 16,
+                      offset: const Offset(0, 6)),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('POS Terminal',
+                          style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600)),
+                      const Icon(Icons.wifi_rounded,
+                          color: Colors.white54, size: 15),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Container(
+                    height: 40,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.white12,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.nfc_rounded,
+                            color: Colors.white, size: 20),
+                        SizedBox(width: 8),
+                        Text('CHẠM / CÀ THẺ',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
+                                letterSpacing: 0.5)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _CardBadge('VISA'),
+                      const SizedBox(width: 6),
+                      _CardBadge('MC'),
+                      const SizedBox(width: 6),
+                      _CardBadge('JCB'),
+                      const SizedBox(width: 6),
+                      _CardBadge('NAPAS'),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          _PosStep(
+            icon: Icons.looks_one_rounded,
+            text:
+                'Yêu cầu khách đưa thẻ hoặc điện thoại (Apple Pay / Google Pay)',
+          ),
+          const SizedBox(height: 10),
+          _PosStep(
+            icon: Icons.looks_two_rounded,
+            text: 'Chạm thẻ hoặc cà thẻ vào máy POS',
+          ),
+          const SizedBox(height: 10),
+          _PosStep(
+            icon: Icons.looks_3_rounded,
+            text: 'Khách nhập PIN nếu được yêu cầu',
+          ),
+          const SizedBox(height: 10),
+          _PosStep(
+            icon: Icons.looks_4_rounded,
+            text:
+                'Chờ máy in biên lai, sau đó nhấn "Xác nhận thanh toán"',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CardBadge extends StatelessWidget {
+  final String label;
+  const _CardBadge(this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.white24,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(label,
+          style: const TextStyle(
+              color: Colors.white,
+              fontSize: 9,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.5)),
+    );
+  }
+}
+
+class _PosStep extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _PosStep({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: AppColors.primary),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(text,
+              style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textPrimary,
+                  height: 1.4)),
+        ),
+      ],
+    );
+  }
+}
+
 /// Viên lựa chọn voucher.
 class _ChoicePill extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
 
-  const _ChoicePill({required this.label, required this.selected, required this.onTap});
+  const _ChoicePill(
+      {required this.label, required this.selected, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -488,7 +843,8 @@ class _ChoicePill extends StatelessWidget {
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
-              color: selected ? AppColors.textOnDark : AppColors.textPrimary,
+              color:
+                  selected ? AppColors.textOnDark : AppColors.textPrimary,
             ),
           ),
         ),
@@ -503,7 +859,8 @@ class _MethodTile extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
-  const _MethodTile({required this.method, required this.selected, required this.onTap});
+  const _MethodTile(
+      {required this.method, required this.selected, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -531,7 +888,10 @@ class _MethodTile extends StatelessWidget {
               FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(method.label,
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: fg)),
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: fg)),
               ),
             ],
           ),

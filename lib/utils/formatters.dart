@@ -50,4 +50,14 @@ class AppFormatters {
   /// Ngày rút gọn kèm thứ, vd: "T6 09/10".
   static String shortWeekdayDate(DateTime date) =>
       '${weekdayShort(date)} ${DateFormat('dd/MM').format(date)}';
+
+  /// Thời gian tương đối, vd: "Vừa xong", "5 phút trước", "2 giờ trước", "Hôm qua".
+  static String relativeTime(DateTime dateTime) {
+    final diff = DateTime.now().difference(dateTime);
+    if (diff.inMinutes < 1) return 'Vừa xong';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} phút trước';
+    if (diff.inHours < 24) return '${diff.inHours} giờ trước';
+    if (diff.inDays == 1) return 'Hôm qua';
+    return DateFormat('dd/MM/yyyy').format(dateTime);
+  }
 }

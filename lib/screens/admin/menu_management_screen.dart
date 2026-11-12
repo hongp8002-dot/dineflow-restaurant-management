@@ -69,6 +69,50 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
     }
   }
 
+  // ── Xóa món ──────────────────────────────────────────────────────────────
+
+  Future<void> _confirmDeleteFood(Food food) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Xóa món ăn', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+        content: Text(
+          'Xóa vĩnh viễn "${food.name}"?\n\nHành động này không thể hoàn tác.',
+          style: TextStyle(fontSize: 13.5, color: AppColors.textSecondary, height: 1.5),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            style: OutlinedButton.styleFrom(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              side: BorderSide(color: AppColors.border),
+              foregroundColor: AppColors.textPrimary,
+            ),
+            child: const Text('Huỷ'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.error,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Xóa'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await _repo.deleteFood(food.id);
+      setState(() => _foods.removeWhere((f) => f.id == food.id));
+      _snack('Đã xóa "${food.name}"');
+    } on ApiException catch (e) {
+      _snack(e.message, isError: true);
+    }
+  }
+
   // ── Form món ──────────────────────────────────────────────────────────────
 
   void _showFoodForm([Food? food]) {
@@ -155,37 +199,68 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
   }
 
   // ── Xóa danh mục ─────────────────────────────────────────────────────────
+  // Nếu danh mục có món: hỏi xác nhận xóa luôn các món bên trong.
+  // Thực hiện: xóa từng món trước → rồi mới xóa danh mục.
 
   Future<void> _confirmDeleteCategory(FoodCategory cat) async {
+    final foodsInCat = _foods.where((f) => f.categoryId == cat.id).toList();
+    final hasFoods = foodsInCat.isNotEmpty;
+
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Xóa danh mục', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-        content: Text('Xóa "${cat.name}"?\nNếu danh mục có món ăn, hệ thống sẽ từ chối.',
-            style: TextStyle(fontSize: 13.5, color: AppColors.textSecondary, height: 1.5)),
+        content: Text(
+          hasFoods
+              ? 'Danh mục "${cat.name}" đang có ${foodsInCat.length} món.\n\n'
+                'Xóa danh mục sẽ xóa luôn tất cả các món bên trong. '
+                'Hành động này không thể hoàn tác.'
+              : 'Xóa "${cat.name}"?\nHành động này không thể hoàn tác.',
+          style: TextStyle(fontSize: 13.5, color: AppColors.textSecondary, height: 1.5),
+        ),
         actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         actions: [
           OutlinedButton(
             onPressed: () => Navigator.pop(ctx, false),
-            style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), side: BorderSide(color: AppColors.border), foregroundColor: AppColors.textPrimary),
+            style: OutlinedButton.styleFrom(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              side: BorderSide(color: AppColors.border),
+              foregroundColor: AppColors.textPrimary,
+            ),
             child: const Text('Huỷ'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: AppColors.error, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-            child: const Text('Xóa'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.error,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Text(hasFoods ? 'Xóa tất cả' : 'Xóa'),
           ),
         ],
       ),
     );
     if (ok != true) return;
+
+    setState(() => _loading = true);
     try {
+      // Xóa từng món trong danh mục trước
+      for (final food in foodsInCat) {
+        await _repo.deleteFood(food.id);
+      }
+      // Rồi mới xóa danh mục (backend không còn bị từ chối do có món)
       await _repo.deleteCategory(cat.id);
-      setState(() => _categories.removeWhere((c) => c.id == cat.id));
-      _snack('Đã xóa danh mục "${cat.name}"');
+      setState(() {
+        _foods.removeWhere((f) => f.categoryId == cat.id);
+        _categories.removeWhere((c) => c.id == cat.id);
+        _loading = false;
+      });
+      _snack('Đã xóa danh mục "${cat.name}"'
+          '${hasFoods ? ' và ${foodsInCat.length} món' : ''}');
     } on ApiException catch (e) {
       _snack(e.message, isError: true);
+      _load(); // reload để đồng bộ lại trạng thái
     }
   }
 
@@ -231,8 +306,18 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
                       TextButton(onPressed: _load, child: const Text('Thử lại')),
                     ]))
                   : TabBarView(children: [
-                      _FoodTab(foods: _foods, onEdit: _showFoodForm, onToggle: _toggleAvailable),
-                      _CategoryTab(categories: _categories, foods: _foods, onEdit: _showCategoryForm, onDelete: _confirmDeleteCategory),
+                      _FoodTab(
+                        foods: _foods,
+                        onEdit: _showFoodForm,
+                        onToggle: _toggleAvailable,
+                        onDelete: _confirmDeleteFood,
+                      ),
+                      _CategoryTab(
+                        categories: _categories,
+                        foods: _foods,
+                        onEdit: _showCategoryForm,
+                        onDelete: _confirmDeleteCategory,
+                      ),
                     ]),
         ),
       ),
@@ -246,8 +331,14 @@ class _FoodTab extends StatelessWidget {
   final List<Food> foods;
   final void Function(Food) onEdit;
   final void Function(Food) onToggle;
+  final void Function(Food) onDelete;
 
-  const _FoodTab({required this.foods, required this.onEdit, required this.onToggle});
+  const _FoodTab({
+    required this.foods,
+    required this.onEdit,
+    required this.onToggle,
+    required this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -300,12 +391,26 @@ class _FoodTab extends StatelessWidget {
                           ),
                         ]),
                       ),
+                      // Cột nút: Sửa | Ẩn/Hiện | Xóa
                       Column(children: [
-                        IconButton(icon: const Icon(Icons.edit_outlined, size: 20), tooltip: 'Sửa', onPressed: () => onEdit(food)),
                         IconButton(
-                          icon: Icon(food.isAvailable ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 20, color: food.isAvailable ? AppColors.warning : AppColors.success),
+                          icon: const Icon(Icons.edit_outlined, size: 20),
+                          tooltip: 'Sửa',
+                          onPressed: () => onEdit(food),
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            food.isAvailable ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                            size: 20,
+                            color: food.isAvailable ? AppColors.warning : AppColors.success,
+                          ),
                           tooltip: food.isAvailable ? 'Tạm ẩn' : 'Mở bán',
                           onPressed: () => onToggle(food),
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.delete_outline_rounded, size: 20, color: AppColors.error),
+                          tooltip: 'Xóa',
+                          onPressed: () => onDelete(food),
                         ),
                       ]),
                     ],
@@ -391,7 +496,7 @@ class _CategoryTab extends StatelessWidget {
     return ListView.separated(
       padding: const EdgeInsets.all(20),
       itemCount: categories.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      separatorBuilder: (_, __) => const SizedBox(height:10),
       itemBuilder: (ctx, i) {
         final cat = categories[i];
         final count = foods.where((f) => f.categoryId == cat.id).length;
@@ -412,7 +517,11 @@ class _CategoryTab extends StatelessWidget {
                 Text('$count món', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
               ])),
               IconButton(icon: const Icon(Icons.edit_outlined, size: 20), tooltip: 'Sửa', onPressed: () => onEdit(cat)),
-              IconButton(icon: Icon(Icons.delete_outline, size: 20, color: AppColors.error), tooltip: 'Xóa', onPressed: () => onDelete(cat)),
+              IconButton(
+                icon: Icon(Icons.delete_outline, size: 20, color: AppColors.error),
+                tooltip: 'Xóa',
+                onPressed: () => onDelete(cat),
+              ),
             ]),
           ),
         );

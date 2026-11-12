@@ -52,8 +52,13 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
 
   void _onChanged() => setState(() {});
 
-  TableModel? get _table =>
-      widget.tableId != null ? MockData.tables.firstWhere((t) => t.id == widget.tableId) : null;
+  TableModel? get _table {
+    if (widget.tableId == null) return null;
+    // Dùng where().firstOrNull thay firstWhere để tránh "Bad state: No element"
+    // khi MockData.tables đang được refresh bởi LiveData ở màn trước.
+    final matches = MockData.tables.where((t) => t.id == widget.tableId);
+    return matches.isEmpty ? null : matches.first;
+  }
 
   List<Food> get _filteredFoods {
     return MockData.foods.where((food) {
@@ -99,29 +104,23 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
   }
 
   Future<void> _editNote(OrderItem item) async {
-    final controller = TextEditingController(text: item.note);
-    try {
-      final result = await showDialog<String>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('Ghi chú cho ${item.foodName}'),
-          content: TextField(
-            controller: controller,
-            maxLines: 2,
-            autofocus: true,
-            decoration: const InputDecoration(hintText: 'Vd: Ít cay, không hành...'),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Hủy')),
-            TextButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Lưu')),
-          ],
-        ),
-      );
-      if (result != null) _draft.updateNote(item.id, result.trim());
-    } finally {
-      // Controller phải được huỷ dù người dùng lưu hay bấm huỷ, tránh rò rỉ.
-      controller.dispose();
-    }
+    // Lấy navigator context trước khi await để không dùng context sau khoảng chờ.
+    // useRootNavigator: true tránh lỗi "_dependents.isEmpty" khi parent widget
+    // bị dispose trong lúc dialog đang mở (vd do LiveData refresh).
+    final nav = Navigator.of(context, rootNavigator: true);
+    final result = await showDialog<String>(
+      context: nav.context,
+      useRootNavigator: true,
+      // _NoteDialog là StatefulWidget riêng: controller được tạo trong initState()
+      // và huỷ trong dispose() — Flutter gọi dispose() SAU KHI animation đóng
+      // dialog hoàn tất, tránh lỗi "TextEditingController used after being disposed".
+      builder: (ctx) => _NoteDialog(
+        foodName: item.foodName,
+        initialNote: item.note,
+      ),
+    );
+    // Kiểm tra mounted trước khi cập nhật state để tránh setState sau dispose.
+    if (result != null && mounted) _draft.updateNote(item.id, result.trim());
   }
 
   /// Hỏi lại trước khi rời màn hình khi order đang có món, tránh mất công nhập.
@@ -342,6 +341,65 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Dialog nhập ghi chú cho món (vd "ít cay", "không hành").
+/// Dùng StatefulWidget để TextEditingController được tạo trong initState()
+/// và huỷ trong dispose() đúng vòng đời — tránh lỗi "used after being disposed".
+class _NoteDialog extends StatefulWidget {
+  final String foodName;
+  final String initialNote;
+
+  const _NoteDialog({required this.foodName, required this.initialNote});
+
+  @override
+  State<_NoteDialog> createState() => _NoteDialogState();
+}
+
+class _NoteDialogState extends State<_NoteDialog> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initialNote);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Ghi chú: ${widget.foodName}'),
+      content: TextField(
+        controller: _ctrl,
+        autofocus: true,
+        maxLength: 100,
+        maxLines: 3,
+        minLines: 2,
+        textInputAction: TextInputAction.done,
+        decoration: const InputDecoration(
+          hintText: 'Vd: ít cay, không hành...',
+          counterText: '',
+        ),
+        onSubmitted: (_) => Navigator.pop(context, _ctrl.text),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, widget.initialNote),
+          child: const Text('Huỷ'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, _ctrl.text),
+          child: const Text('Lưu'),
+        ),
+      ],
     );
   }
 }

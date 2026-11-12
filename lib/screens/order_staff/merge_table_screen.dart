@@ -84,8 +84,13 @@ class _MergeTableScreenState extends State<MergeTableScreen> {
       LiveData(sources: const {LiveSource.tables}, builder: (context, _) => _buildContent(context));
 
   Widget _buildContent(BuildContext context) {
-    // MockData.tables được AppData nạp từ API thật.
-    final allTables = MockData.tables.where((t) => t.isActive && !t.isLocked).toList();
+    // Chỉ hiển thị bàn đang phục vụ (có đơn) làm bàn NGUỒN:
+    // Backend yêu cầu bàn nguồn phải có trạng thái Serving (TableOperationController@merge).
+    // Bàn trống không có đơn → chọn vào sẽ bị server từ chối 422.
+    // Bàn đích (initialTableId) hiển thị riêng qua chip, không phụ thuộc danh sách này.
+    final allTables = MockData.tables
+        .where((t) => t.isActive && !t.isLocked && t.status == TableStatus.serving)
+        .toList();
 
     final targetTable = MockData.tables.where((t) => t.id == widget.initialTableId).firstOrNull;
     if (targetTable == null) {
@@ -166,7 +171,7 @@ class _MergeTableScreenState extends State<MergeTableScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Bàn đích (${targetTable.number}) được đánh dấu sẵn, không thể bỏ chọn',
+                  'Chỉ hiển thị bàn đang phục vụ · Bàn đích (${targetTable.number}) không thể bỏ chọn',
                   style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 10),

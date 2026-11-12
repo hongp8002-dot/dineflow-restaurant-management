@@ -51,6 +51,8 @@ class AdminRepository {
     final res = await _api.patch('/admin/foods/$id/toggle-available', body: {});
     return Food.fromApiJson(res.map);
   }
+  /// Xóa vĩnh viễn một món ăn. Gọi DELETE /admin/foods/{id}.
+  Future<void> deleteFood(String id) async => _api.delete('/admin/foods/$id');
 
   // CATEGORIES
   Future<List<FoodCategory>> fetchCategories() async {

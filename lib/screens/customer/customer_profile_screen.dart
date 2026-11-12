@@ -53,6 +53,11 @@ class CustomerProfileScreen extends StatelessWidget {
                 onTap: () => Navigator.of(context).pushNamed(AppRoutes.customerFavorites),
               ),
               AppSettingTile(
+                icon: Icons.notifications_none_rounded,
+                label: 'Thông báo',
+                onTap: () => Navigator.of(context).pushNamed(AppRoutes.customerNotifications),
+              ),
+              AppSettingTile(
                 icon: Icons.event_seat_outlined,
                 label: 'Lịch đặt bàn',
                 onTap: () {

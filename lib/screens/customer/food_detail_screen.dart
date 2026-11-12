@@ -69,8 +69,9 @@ class _FoodDetailScreenState extends State<FoodDetailScreen> {
     Navigator.of(context).pop();
   }
 
-  void _toggleFavorite(BuildContext context) {
-    final liked = FavoriteStore.instance.toggle(_food.id);
+  Future<void> _toggleFavorite(BuildContext context) async {
+    final liked = await FavoriteStore.instance.toggle(_food.id);
+    if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(

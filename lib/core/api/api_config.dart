@@ -1,31 +1,26 @@
 import 'package:flutter/foundation.dart';
 
 /// Cấu hình kết nối tới backend Laravel.
-///
-/// Mặc định tự chọn theo nền tảng:
-/// - Android Emulator: `10.0.2.2` là địa chỉ máy tính chạy emulator.
-/// - Còn lại (Windows, Web, iOS Simulator): `127.0.0.1`.
-///
-/// Điện thoại thật hoặc server khác: truyền địa chỉ khi chạy app, ví dụ
-/// `flutter run --dart-define=API_BASE_URL=http://192.168.1.10:8000/api`
-/// (và chạy server bằng `php artisan serve --host=0.0.0.0`).
+/// Backend chạy bằng: php artisan serve (port 8000 mặc định).
 class ApiConfig {
   ApiConfig._();
+
+  /// TODO: điền IP LAN máy tính khi chạy trên điện thoại thật.
+  /// Ví dụ: 'http://192.168.x.x:8080/api'
+  /// Để trống khi chạy emulator/simulator trên máy.
+  static const String _kLanOverride = '';
 
   static const String _override = String.fromEnvironment('API_BASE_URL');
 
   static String get baseUrl {
     if (_override.isNotEmpty) return _override;
+    if (_kLanOverride.isNotEmpty) return _kLanOverride;
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      return 'http://10.0.2.2:8000/api';
+      return 'http://10.0.2.2:8000/api'; // Android Emulator → php artisan serve port 8000
     }
-    return 'http://127.0.0.1:8000/api';
+    return 'http://127.0.0.1:8000/api'; // Windows desktop → php artisan serve port 8000
   }
 
-  /// Server dev thường đặt `APP_URL=http://127.0.0.1:8000`, nên link ảnh nó trả về trỏ vào
-  /// `127.0.0.1` — trên emulator đó là chính emulator, không phải máy chạy server.
-  /// Hàm này đổi địa chỉ "local" đó thành địa chỉ máy chủ app đang dùng ([baseUrl]).
-  /// Link tới host khác (CDN, S3...) và đường dẫn tương đối được giữ nguyên.
   static String resolveMediaUrl(String url) {
     final media = Uri.tryParse(url);
     if (media == null || !media.hasScheme || !_localHosts.contains(media.host)) return url;
@@ -42,6 +37,5 @@ class ApiConfig {
 
   static const _localHosts = {'localhost', '127.0.0.1', '10.0.2.2', '0.0.0.0'};
 
-  /// Quá thời gian này mà server chưa trả lời thì báo lỗi.
   static const Duration timeout = Duration(seconds: 15);
 }

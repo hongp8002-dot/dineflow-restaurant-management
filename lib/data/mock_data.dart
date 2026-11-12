@@ -332,20 +332,6 @@ class MockData {
     );
   }
 
-  /// Tìm khách thành viên theo mã thẻ (vd "DF-000123") khi thu ngân quét QR hoặc nhập tay.
-  /// Bỏ khoảng trắng thừa, không phân biệt hoa/thường. Không thấy thì trả về null.
-  ///
-  /// TẠM THỜI tra trong danh sách khách mẫu [customers]; bước nối thanh toán Kiểu A
-  /// sẽ thay bằng API tra mã thành viên trên server.
-  static Customer? customerByMemberCode(String code) {
-    final normalized = code.trim().toUpperCase();
-    if (normalized.isEmpty) return null;
-    for (final customer in customers) {
-      if (customer.memberCode.toUpperCase() == normalized) return customer;
-    }
-    return null;
-  }
-
   // ------------------------- RESERVATIONS (đặt bàn) -------------------------
   static List<Reservation> reservations = [
     Reservation(

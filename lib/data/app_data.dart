@@ -1,6 +1,7 @@
 import '../core/api/api_exception.dart';
 import '../core/session/session_store.dart';
 import '../models/user.dart';
+import 'favorite_store.dart';
 import 'invoice_repository.dart';
 import 'menu_repository.dart';
 import 'mock_data.dart';
@@ -28,6 +29,7 @@ class AppData {
       _loadMenu(),
       refresh(defaultSources()),
       _loadPromotions(),
+      if (SessionStore.instance.user?.role == UserRole.customer) _loadFavorites(),
     ]);
 
     final failures = results.whereType<String>().toList();
@@ -68,6 +70,16 @@ class AppData {
       return null;
     } on ApiException catch (e) {
       return 'thực đơn: ${e.message}';
+    }
+  }
+
+  /// Tải danh sách món yêu thích vào [FavoriteStore] (chỉ cho khách hàng).
+  static Future<String?> _loadFavorites() async {
+    try {
+      await FavoriteStore.instance.loadFromApi();
+      return null;
+    } catch (e) {
+      return null; // Lỗi yêu thích không ngăn vào app
     }
   }
 

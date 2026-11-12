@@ -28,6 +28,7 @@ import '../screens/customer/customer_profile_screen.dart';
 import '../screens/customer/customer_settings_screen.dart';
 import '../screens/customer/customer_store_location_screen.dart';
 import '../screens/customer/favorite_foods_screen.dart';
+import '../screens/customer/notification_screen.dart';
 import '../screens/customer/voucher_wallet_screen.dart';
 import '../screens/customer/customer_shell.dart';
 import '../screens/customer/food_detail_screen.dart';
@@ -73,6 +74,7 @@ class AppRoutes {
   static const customerStoreLocation = '/customer/store-location';
   static const customerVouchers = '/customer/vouchers';
   static const customerFavorites = '/customer/favorites';
+  static const customerNotifications = '/customer/notifications';
 
   // Order staff
   static const staffTables = '/order-staff/tables';
@@ -177,6 +179,9 @@ class AppRoutes {
         break;
       case customerFavorites:
         page = const FavoriteFoodsScreen();
+        break;
+      case customerNotifications:
+        page = const NotificationScreen();
         break;
 
       // Order staff

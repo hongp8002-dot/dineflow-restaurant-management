@@ -87,6 +87,9 @@ class InvoiceScreen extends StatelessWidget {
             _pdfRow('Tạm tính', AppFormatters.currency(invoice.subtotal), font: font, fontBold: fontBold),
             _pdfRow('Giảm giá', '-${AppFormatters.currency(invoice.discount)}',
                 font: font, fontBold: fontBold),
+            if (invoice.hasDeposit)
+              _pdfRow('Đã cọc (đặt bàn)', '-${AppFormatters.currency(invoice.depositAmount)}',
+                  font: font, fontBold: fontBold),
             _pdfRow('Phương thức', invoice.paymentMethod.label, font: font, fontBold: fontBold),
             pw.SizedBox(height: 6),
             pw.Row(
@@ -293,6 +296,11 @@ class _Receipt extends StatelessWidget {
           const SizedBox(height: 10),
           _ReceiptRow(label: 'Tạm tính', value: AppFormatters.currency(invoice.subtotal)),
           _ReceiptRow(label: 'Giảm giá', value: '-${AppFormatters.currency(invoice.discount)}'),
+          if (invoice.hasDeposit)
+            _ReceiptRow(
+              label: 'Đã cọc (đặt bàn)',
+              value: '-${AppFormatters.currency(invoice.depositAmount)}',
+            ),
           _ReceiptRow(label: 'Phương thức', value: invoice.paymentMethod.label),
           const SizedBox(height: 10),
           Row(

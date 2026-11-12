@@ -22,12 +22,6 @@ class CashierProfileScreen extends StatelessWidget {
     Navigator.of(context).pushNamed(fallbackRoute);
   }
 
-  void _showDemo(BuildContext context, String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
-  }
-
   @override
   Widget build(BuildContext context) {
     var order = 0;
@@ -61,12 +55,8 @@ class CashierProfileScreen extends StatelessWidget {
                     tile(Icons.history_rounded, 'Lịch sử thanh toán',
                         () => _open(context, CashierTab.history, AppRoutes.cashierHistory)),
                     ThemeModeTile(iconBackground: AppColors.primaryLight, iconShape: BoxShape.rectangle),
-                    // "Trợ giúp & hỗ trợ" chưa có màn hình riêng cho nhân viên; báo demo
-                    // để người dùng không tưởng app bị treo.
                     tile(Icons.lock_outline_rounded, 'Đổi mật khẩu',
                         () => Navigator.of(context).pushNamed(AppRoutes.cashierSettings)),
-                    tile(Icons.help_outline_rounded, 'Trợ giúp & hỗ trợ',
-                        () => _showDemo(context, 'Trợ giúp & hỗ trợ (demo)')),
                   ],
                 )),
                 const SizedBox(height: 14),

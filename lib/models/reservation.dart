@@ -55,6 +55,14 @@ class Reservation {
   /// Quá hạn mà chưa xác nhận thì server tự hủy lượt đặt để nhả bàn.
   final DateTime? holdExpiresAt;
 
+  /// Số tiền cọc (50% tổng món đặt trước, làm tròn lên 100đ).
+  /// null = không có cọc (không đặt món trước hoặc tổng = 0).
+  final double? depositAmount;
+
+  /// Thời điểm khách đã thanh toán cọc (qua VietQR giả lập trong app).
+  /// null = chưa thanh toán cọc.
+  final DateTime? depositPaidAt;
+
   const Reservation({
     required this.id,
     required this.code,
@@ -70,12 +78,15 @@ class Reservation {
     this.preOrderItems = const [],
     this.preOrderPayment,
     this.holdExpiresAt,
+    this.depositAmount,
+    this.depositPaidAt,
   });
 
   /// Đọc một lượt đặt bàn do API trả về (khóa `snake_case`).
   factory Reservation.fromApiJson(Map<String, dynamic> json) {
     final lines = (json['pre_order_items'] as List<dynamic>? ?? const []).cast<Map<String, dynamic>>();
     final holdExpiresAt = json['hold_expires_at'] as String?;
+    final depositPaidAt = json['deposit_paid_at'] as String?;
 
     return Reservation(
       id: json['id'].toString(),
@@ -95,11 +106,16 @@ class Reservation {
       ],
       preOrderPayment: PaymentMethod.values.asNameMap()[json['pre_order_payment']],
       holdExpiresAt: holdExpiresAt == null ? null : DateTime.parse(holdExpiresAt).toLocal(),
+      depositAmount: (json['deposit_amount'] as num?)?.toDouble(),
+      depositPaidAt: depositPaidAt == null ? null : DateTime.parse(depositPaidAt).toLocal(),
     );
   }
 
   /// Đang giữ bàn chờ khách xác nhận.
   bool get isHeld => holdExpiresAt != null;
+
+  /// Khách đã thanh toán cọc (VietQR giả lập).
+  bool get isDepositPaid => depositPaidAt != null;
 
   /// Bàn chính (bàn đầu tiên) - dùng cho các chỗ chỉ cần tham chiếu một bàn.
   String get tableId => tableIds.first;
@@ -119,6 +135,8 @@ class Reservation {
     List<OrderItem>? preOrderItems,
     PaymentMethod? preOrderPayment,
     bool clearHold = false,
+    double? depositAmount,
+    DateTime? depositPaidAt,
   }) {
     return Reservation(
       id: id,
@@ -135,6 +153,8 @@ class Reservation {
       preOrderItems: preOrderItems ?? this.preOrderItems,
       preOrderPayment: preOrderPayment ?? this.preOrderPayment,
       holdExpiresAt: clearHold ? null : holdExpiresAt,
+      depositAmount: depositAmount ?? this.depositAmount,
+      depositPaidAt: depositPaidAt ?? this.depositPaidAt,
     );
   }
 }

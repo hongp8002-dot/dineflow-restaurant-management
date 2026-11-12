@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/routes.dart';
 import '../../data/cart_store.dart';
+import '../../data/notification_repository.dart';
 import '../../data/mock_data.dart';
 import '../../models/food.dart';
 import '../../models/reservation.dart';
@@ -34,6 +35,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     super.initState();
     // Thẻ lịch đặt bàn sắp tới cập nhật khi khách đặt hoặc huỷ bàn ở tab khác.
     MockData.reservationsVersion.addListener(_onReservationsChanged);
+    NotificationRepository.instance.refreshUnreadCount();
   }
 
   @override
@@ -42,7 +44,11 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     super.dispose();
   }
 
-  void _onReservationsChanged() => setState(() {});
+  void _onReservationsChanged() {
+    setState(() {});
+    // Đặt / hủy bàn xong thì server vừa tạo thông báo mới → tải lại số chưa đọc.
+    NotificationRepository.instance.refreshUnreadCount();
+  }
 
   /// Chuyển sang tab khác trong khung Khách hàng; nếu màn hình đang được mở
   /// riêng (không nằm trong khung) thì mở route tương ứng.
@@ -184,15 +190,28 @@ class _Greeting extends StatelessWidget {
         ),
         const SizedBox(width: 12),
         PressScale(
-          onTap: () => ScaffoldMessenger.of(context)
-            ..hideCurrentSnackBar()
-            ..showSnackBar(const SnackBar(content: Text('Chưa có thông báo mới'))),
+          onTap: () async {
+            await Navigator.of(context).pushNamed(AppRoutes.customerNotifications);
+            // Quay lại từ màn Thông báo: đồng bộ số chưa đọc với server.
+            NotificationRepository.instance.refreshUnreadCount();
+          },
           scale: 0.9,
           child: Container(
             width: 52,
             height: 52,
+            // Badge không tự căn giữa như Icon → căn giữa để chuông nằm giữa vòng tròn.
+            alignment: Alignment.center,
             decoration: BoxDecoration(color: AppColors.surfaceAlt, shape: BoxShape.circle),
-            child: Icon(Icons.notifications_none_rounded, size: 24, color: AppColors.textPrimary),
+            child: ValueListenableBuilder<int>(
+              valueListenable: NotificationRepository.instance.unreadCount,
+              builder: (context, count, icon) => Badge(
+                isLabelVisible: count > 0,
+                backgroundColor: AppColors.error,
+                label: Text(count > 9 ? '9+' : '$count'),
+                child: icon,
+              ),
+              child: Icon(Icons.notifications_none_rounded, size: 24, color: AppColors.textPrimary),
+            ),
           ),
         ),
       ],

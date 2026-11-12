@@ -40,7 +40,16 @@ class _TableDetailScreenState extends State<TableDetailScreen> {
       );
 
   Widget _buildContent(BuildContext context, Future<void> Function() refresh) {
-    final table = MockData.tables.firstWhere((t) => t.id == widget.tableId);
+    // Dùng where().first thay cho firstWhere để tránh "Bad state: No element"
+    // khi MockData.tables tạm thời rỗng trong lúc LiveData đang refresh.
+    final matches = MockData.tables.where((t) => t.id == widget.tableId);
+    if (matches.isEmpty) {
+      return Scaffold(
+        backgroundColor: AppColors.surfaceAlt,
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    final table = matches.first;
     final order = table.currentOrderId != null ? MockData.findOrder(table.currentOrderId!) : null;
     final nextStatus = order != null ? _nextStatus(order.status) : null;
 
@@ -181,7 +190,11 @@ class _TableDetailScreenState extends State<TableDetailScreen> {
                           icon: Icons.call_merge_rounded,
                           variant: AppButtonVariant.light,
                           dense: true,
-                          onPressed: table.status == TableStatus.serving
+                          // Cho phép gộp từ cả bàn trống lẫn bàn đang phục vụ:
+                          // - Bàn đích trống → server sẽ chuyển đơn của bàn nguồn vào đây
+                          //   (hoạt động như chuyển bàn).
+                          // - Bàn đích đang phục vụ → server gộp các món lại thành một đơn.
+                          onPressed: (table.isActive && !table.isLocked)
                               ? () => Navigator.of(context)
                                   .pushNamed(AppRoutes.staffMergeTable, arguments: table.id)
                               : null,

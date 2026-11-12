@@ -22,12 +22,6 @@ class StaffProfileScreen extends StatelessWidget {
     Navigator.of(context).pushNamed(fallbackRoute);
   }
 
-  void _showDemo(BuildContext context, String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
-  }
-
   @override
   Widget build(BuildContext context) {
     final user = MockData.currentOrderStaff;
@@ -65,21 +59,12 @@ class StaffProfileScreen extends StatelessWidget {
                       onTap: () => _open(context, StaffTab.serving, AppRoutes.staffServingOrders),
                     ),
                     ThemeModeTile(iconBackground: AppColors.primaryLight, iconShape: BoxShape.rectangle),
-                    // "Trợ giúp & hỗ trợ" chưa có màn hình riêng cho nhân viên; báo demo
-                    // để người dùng không tưởng app bị treo.
                     AppSettingTile(
                       icon: Icons.lock_outline_rounded,
                       label: 'Đổi mật khẩu',
                       iconBackground: AppColors.primaryLight,
                       iconShape: BoxShape.rectangle,
                       onTap: () => Navigator.of(context).pushNamed(AppRoutes.staffSettings),
-                    ),
-                    AppSettingTile(
-                      icon: Icons.help_outline_rounded,
-                      label: 'Trợ giúp & hỗ trợ',
-                      iconBackground: AppColors.primaryLight,
-                      iconShape: BoxShape.rectangle,
-                      onTap: () => _showDemo(context, 'Trợ giúp & hỗ trợ (demo)'),
                     ),
                   ],
                 )),

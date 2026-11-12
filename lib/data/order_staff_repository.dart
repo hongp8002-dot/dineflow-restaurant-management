@@ -19,7 +19,8 @@ class OrderStaffRepository {
   }) async {
     await ApiClient.instance.post(
       '/tables/$tableId/transfer',
-      body: {'target_table_id': targetTableId},
+      // Backend expects 'to_table_id' (see TableOperationController@transfer).
+      body: {'to_table_id': targetTableId},
     );
   }
 

@@ -41,6 +41,13 @@ class Order {
   final DateTime createdAt;
   final String note;
 
+  /// ID đặt bàn liên kết (nếu đơn được tạo từ lượt đặt bàn của khách).
+  final String? reservationId;
+
+  /// Tiền cọc đã đặt bàn (từ reservation.deposit_amount nếu đã thanh toán cọc).
+  /// 0.0 = không có cọc.
+  final double depositAmount;
+
   const Order({
     required this.id,
     this.code,
@@ -53,6 +60,8 @@ class Order {
     this.paymentStatus = PaymentStatus.unpaid,
     required this.createdAt,
     this.note = '',
+    this.reservationId,
+    this.depositAmount = 0.0,
   });
 
   /// Đọc một đơn do API trả về (khóa `snake_case`).
@@ -75,6 +84,8 @@ class Order {
       paymentStatus: PaymentStatus.values.asNameMap()[json['payment_status']] ?? PaymentStatus.unpaid,
       createdAt: DateTime.parse(json['created_at'] as String).toLocal(),
       note: json['note'] as String? ?? '',
+      reservationId: json['reservation_id']?.toString(),
+      depositAmount: (json['deposit_amount'] as num?)?.toDouble() ?? 0.0,
     );
   }
 
@@ -82,6 +93,9 @@ class Order {
   String get displayCode => code ?? id.toUpperCase();
 
   double get subtotal => items.fold(0, (sum, i) => sum + i.total);
+
+  /// Có tiền cọc được khấu trừ hay không.
+  bool get hasDeposit => depositAmount > 0;
 
   int get totalQuantity => items.fold(0, (sum, i) => sum + i.quantity);
 }
