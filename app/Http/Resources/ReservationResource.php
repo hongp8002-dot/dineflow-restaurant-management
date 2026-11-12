@@ -31,6 +31,10 @@ class ReservationResource extends JsonResource
             'pre_order_items' => $this->pre_order_items ?? [],
             'pre_order_payment' => $this->pre_order_payment?->value,
             'pre_order_total' => $this->resource->preOrderTotal(),
+            // Tiền cọc (50% tổng món đặt trước, làm tròn lên 100đ); null = không có cọc.
+            'deposit_amount' => $this->deposit_amount !== null ? (float) $this->deposit_amount : null,
+            'deposit_paid_at' => $this->deposit_paid_at?->toIso8601String(),
+            'is_deposit_paid' => $this->resource->isDepositPaid(),
         ];
     }
 }

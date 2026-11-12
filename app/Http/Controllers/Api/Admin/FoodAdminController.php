@@ -11,9 +11,11 @@ use Illuminate\Http\Request;
 /**
  * CRUD món ăn (chỉ Admin).
  *
- * Chính sách xóa: KHÔNG hard delete vì món đã xuất hiện trong hóa đơn cũ.
- * "Xóa" = set is_available = false (ẩn khỏi thực đơn, khách không order được).
- * Admin có thể bật lại bất cứ lúc nào.
+ * Hai cách "xóa":
+ *  1. toggleAvailable – ẩn/hiện (mềm, có thể khôi phục, dùng khi tạm hết nguyên liệu).
+ *  2. destroy         – xóa vĩnh viễn (cứng). Dùng khi admin lỡ thêm món sai và muốn dọn sạch.
+ *                       Lưu ý: nếu món đã có trong hóa đơn, record hóa đơn vẫn còn vì
+ *                       order_items lưu tên/giá riêng, không dùng FK bắt buộc tới foods.
  */
 class FoodAdminController extends ApiController
 {
@@ -103,5 +105,22 @@ class FoodAdminController extends ApiController
             : "Đã ẩn món \"{$food->name}\" khỏi thực đơn";
 
         return $this->ok(FoodResource::make($food->fresh()->load('options'))->resolve(request()), $message);
+    }
+
+    /**
+     * DELETE /api/admin/foods/{food}
+     *
+     * Xóa vĩnh viễn món ăn. Dùng khi admin lỡ thêm nhầm và muốn dọn sạch.
+     * Khác với toggleAvailable: không thể khôi phục.
+     */
+    public function destroy(Food $food): JsonResponse
+    {
+        $name = $food->name;
+
+        // Xóa các options của món trước (nếu không có cascade ở DB)
+        $food->options()->delete();
+        $food->delete();
+
+        return $this->ok(null, "Đã xóa món \"$name\"");
     }
 }

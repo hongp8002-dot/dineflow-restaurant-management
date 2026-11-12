@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Enums\PaymentMethod;
 use App\Enums\ReservationStatus;
 use App\Http\Resources\ReservationResource;
+use App\Models\AppNotification;
 use App\Models\DiningTable;
 use App\Models\Reservation;
 use App\Services\LineItemBuilder;
@@ -17,8 +18,8 @@ use Illuminate\Validation\ValidationException;
 
 class ReservationController extends ApiController
 {
-    /** Một bàn đã có lượt đặt thì không nhận lượt khác trong ±2 giờ quanh giờ đó. */
-    private const WINDOW_HOURS = 2;
+    /** Một bàn đã có lượt đặt thì không nhận lượt khác trong ±90 phút quanh giờ đó. */
+    private const WINDOW_MINUTES = 90;
 
     /** Thời gian giữ bàn chờ khách xác nhận (đặt bàn qua app gồm 3 bước). */
     public const HOLD_MINUTES = 10;
@@ -63,7 +64,7 @@ class ReservationController extends ApiController
             }
 
             $taken = Reservation::blocking()
-                ->whereBetween('date_time', [$dateTime->copy()->subHours(self::WINDOW_HOURS), $dateTime->copy()->addHours(self::WINDOW_HOURS)])
+                ->whereBetween('date_time', [$dateTime->copy()->subMinutes(self::WINDOW_MINUTES), $dateTime->copy()->addMinutes(self::WINDOW_MINUTES)])
                 ->where(function ($q) use ($tableIds) {
                     foreach ($tableIds as $id) {
                         $q->orWhereJsonContains('table_ids', $id);
@@ -92,6 +93,15 @@ class ReservationController extends ApiController
             ]);
         });
 
+        // Nếu không phải hold (đặt thẳng) → gửi thông báo xác nhận ngay
+        if (! $reservation->isHeld()) {
+            AppNotification::reservationConfirmed(
+                $reservation->customer_id,
+                $reservation->id,
+                $reservation->date_time->format('H:i d/m/Y'),
+            );
+        }
+
         return $this->ok(
             ReservationResource::make($reservation),
             $reservation->isHeld() ? 'Đã giữ bàn. Vui lòng hoàn tất trong '.self::HOLD_MINUTES.' phút.' : 'Đặt bàn thành công.',
@@ -103,6 +113,9 @@ class ReservationController extends ApiController
      * POST /api/reservations/{id}/confirm  (chủ lượt đặt)
      * Xác nhận lượt đặt đang giữ bàn, kèm món đặt trước nếu có. Gửi `pre_order_items` (kể cả mảng rỗng)
      * thì thay danh sách món đặt trước; không gửi thì giữ nguyên. Gọi lại khi đã xác nhận: trả về như cũ.
+     *
+     * Khi xác nhận kèm món đặt trước (pre_order_items), server tự tính và ghi nhận tiền cọc 50%.
+     * Tiền cọc được lưu vào reservation.deposit_amount và deposit_paid_at = now() (giả lập đã thanh toán VietQR).
      */
     public function confirm(Request $request, Reservation $reservation): JsonResponse
     {
@@ -136,7 +149,34 @@ class ReservationController extends ApiController
             $update['pre_order_payment'] = $lines ? $data['pre_order_payment'] : null;
         }
 
+        // ── Tính và ghi nhận tiền cọc ─────────────────────────────────────────
+        // Clone reservation và gán pre_order_items mới (nếu có) để tính đúng tổng.
+        // Làm vậy vì $update chứa items mới nhưng chưa lưu DB, không thể gọi calculateDeposit()
+        // trực tiếp trên $reservation (vẫn còn items cũ).
+        $tempReservation = clone $reservation;
+        if (isset($update['pre_order_items'])) {
+            $tempReservation->pre_order_items = $update['pre_order_items'];
+        }
+        $depositAmount = $tempReservation->calculateDeposit();
+
+        if ($depositAmount > 0) {
+            // Ghi nhận tiền cọc và đánh dấu đã thanh toán (VietQR giả lập trong app)
+            $update['deposit_amount']  = $depositAmount;
+            $update['deposit_paid_at'] = now();
+        } else {
+            // Không có món đặt trước → xóa cọc (trường hợp khách bỏ hết món trước khi xác nhận)
+            $update['deposit_amount']  = null;
+            $update['deposit_paid_at'] = null;
+        }
+
         $reservation->update($update);
+
+        // Gửi thông báo xác nhận sau khi hoàn tất hold flow
+        AppNotification::reservationConfirmed(
+            $reservation->customer_id,
+            $reservation->id,
+            $reservation->date_time->format('H:i d/m/Y'),
+        );
 
         return $this->ok(ReservationResource::make($reservation), 'Đặt bàn thành công.');
     }
@@ -156,7 +196,13 @@ class ReservationController extends ApiController
         return $this->ok($this->items($reservations, ReservationResource::class));
     }
 
-    /** PATCH /api/reservations/{id}/cancel  (chủ lượt đặt; hủy được cả lượt đang giữ bàn) */
+    /**
+     * PATCH /api/reservations/{id}/cancel  (chủ lượt đặt; hủy được cả lượt đang giữ bàn)
+     *
+     * Tiền cọc KHÔNG hoàn trả (non-refundable). deposit_amount và deposit_paid_at được giữ
+     * nguyên trong DB để làm bằng chứng kiểm toán; nhân viên xem lịch sử vẫn thấy khách
+     * đã cọc bao nhiêu dù đã hủy.
+     */
     public function cancel(Request $request, Reservation $reservation): JsonResponse
     {
         if ($reservation->customer_id !== $request->user()->id) {
@@ -167,7 +213,15 @@ class ReservationController extends ApiController
             return $this->fail('Chỉ hủy được lượt đặt đang ở trạng thái "Sắp tới".', 422);
         }
 
+        // Chỉ cập nhật status và xóa hold_expires_at. deposit_amount / deposit_paid_at giữ nguyên.
         $reservation->update(['status' => ReservationStatus::Cancelled, 'hold_expires_at' => null]);
+
+        // Gửi thông báo hủy cho khách
+        AppNotification::reservationCancelled(
+            $reservation->customer_id,
+            $reservation->id,
+            $reservation->date_time->format('H:i d/m/Y'),
+        );
 
         return $this->ok(ReservationResource::make($reservation), 'Đã hủy lượt đặt bàn.');
     }

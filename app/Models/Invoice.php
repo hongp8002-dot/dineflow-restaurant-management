@@ -13,9 +13,11 @@ class Invoice extends Model
     protected $fillable = [
         'order_id',
         'cashier_id',
+        'shift_id',
         'promotion_id',
         'subtotal',
         'discount',
+        'deposit_amount',
         'total',
         'payment_method',
         'status',
@@ -27,6 +29,7 @@ class Invoice extends Model
         return [
             'subtotal' => 'decimal:2',
             'discount' => 'decimal:2',
+            'deposit_amount' => 'decimal:2',
             'total' => 'decimal:2',
             'payment_method' => PaymentMethod::class,
             'status' => InvoiceStatus::class,

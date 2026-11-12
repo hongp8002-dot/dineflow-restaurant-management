@@ -11,6 +11,7 @@ use App\Http\Resources\InvoiceResource;
 use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\Promotion;
+use App\Models\Reservation;
 use App\Models\Shift;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -31,6 +32,7 @@ class CheckoutController extends ApiController
      * - Giảm = max(giảm theo hạng, giảm theo voucher). Không cộng dồn.
      * - Cộng điểm: floor(total_thực_trả / 10000) × 2.
      * - Thu ngân phải có ca đang mở mới thanh toán được.
+     * - Tiền cọc (nếu đơn gắn đặt bàn có đặt món trước) được khấu trừ SAU khi tính giảm giá.
      */
     public function pay(Request $request, Order $order): JsonResponse
     {
@@ -108,29 +110,40 @@ class CheckoutController extends ApiController
                 $promotion = null;
             }
 
-            $total = max(0.0, $subtotal - $discount);
+            // ── 5. Khấu trừ tiền cọc (nếu đơn gắn đặt bàn có cọc) ──────
+            // Tiền cọc được trừ SAU khi tính giảm giá (subtotal - discount - deposit).
+            $depositAmount = 0.0;
+            if ($order->reservation_id) {
+                $reservation = Reservation::find($order->reservation_id);
+                if ($reservation && $reservation->isDepositPaid()) {
+                    $depositAmount = (float) $reservation->deposit_amount;
+                }
+            }
 
-            // ── 5. Tạo hóa đơn ──────────────────────────────────────────
+            $total = max(0.0, $subtotal - $discount - $depositAmount);
+
+            // ── 6. Tạo hóa đơn ──────────────────────────────────────────
             $invoice = Invoice::updateOrCreate(['order_id' => $order->id], [
-                'cashier_id'   => $request->user()->id,
-                'shift_id'     => $shift->id,
-                'promotion_id' => $promotion?->id,
-                'subtotal'     => $subtotal,
-                'discount'     => $discount,
-                'total'        => $total,
+                'cashier_id'     => $request->user()->id,
+                'shift_id'       => $shift->id,
+                'promotion_id'   => $promotion?->id,
+                'subtotal'       => $subtotal,
+                'discount'       => $discount,
+                'deposit_amount' => $depositAmount,
+                'total'          => $total,
                 'payment_method' => $data['payment_method'],
-                'status'       => InvoiceStatus::Paid,
-                'paid_at'      => now(),
+                'status'         => InvoiceStatus::Paid,
+                'paid_at'        => now(),
             ]);
 
-            // ── 6. Đóng đơn và trả bàn ──────────────────────────────────
+            // ── 7. Đóng đơn và trả bàn ──────────────────────────────────
             $order->update([
                 'payment_status' => PaymentStatus::Paid,
                 'status'         => OrderStatus::Completed,
             ]);
             $order->releaseTableIfDone();
 
-            // ── 7. Cộng điểm cho khách (Kiểu A: floor(total / 10000) × 2) ─
+            // ── 8. Cộng điểm cho khách (Kiểu A: floor(total / 10000) × 2) ─
             if ($customer && $total > 0) {
                 $pointsEarned = (int) floor($total / 10000) * 2;
                 if ($pointsEarned > 0) {

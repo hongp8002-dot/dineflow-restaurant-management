@@ -24,6 +24,8 @@ class Reservation extends Model
         'hold_expires_at',
         'pre_order_items',
         'pre_order_payment',
+        'deposit_amount',
+        'deposit_paid_at',
     ];
 
     protected function casts(): array
@@ -33,7 +35,9 @@ class Reservation extends Model
             'pre_order_items' => 'array',
             'date_time' => 'datetime',
             'hold_expires_at' => 'datetime',
+            'deposit_paid_at' => 'datetime',
             'guest_count' => 'integer',
+            'deposit_amount' => 'decimal:2',
             'status' => ReservationStatus::class,
             'pre_order_payment' => PaymentMethod::class,
         ];
@@ -93,6 +97,26 @@ class Reservation extends Model
 
             return ((float) $item['price'] + $extra) * (int) $item['quantity'];
         });
+    }
+
+    /**
+     * Tính tiền cọc = 50% tổng món đặt trước, làm tròn lên 100đ.
+     * Trả về 0 nếu không có món đặt trước.
+     */
+    public function calculateDeposit(): float
+    {
+        $total = $this->preOrderTotal();
+        if ($total <= 0) {
+            return 0.0;
+        }
+
+        return (float) (ceil(($total * 0.5) / 100) * 100);
+    }
+
+    /** Khách đã thanh toán cọc hay chưa (deposit_paid_at != null). */
+    public function isDepositPaid(): bool
+    {
+        return $this->deposit_paid_at !== null;
     }
 
     /** Đang giữ bàn chờ khách xác nhận (chưa xác nhận thì còn hạn giữ). */

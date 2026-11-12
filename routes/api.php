@@ -2,6 +2,8 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CancelOrderController;
+use App\Http\Controllers\Api\FavoriteController;
+use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\MemberController;
@@ -43,6 +45,9 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::get('/categories', [MenuController::class, 'categories']);
     Route::get('/foods', [MenuController::class, 'foods']);
     Route::get('/promotions', [MenuController::class, 'promotions']);
+    // QUAN TRỌNG: /tables/available phải đăng ký TRƯỚC /tables
+    // để Laravel không hiểu "available" là {table} ID.
+    Route::get('/tables/available', [TableController::class, 'available']);
     Route::get('/tables', [TableController::class, 'index']);
 
     // Đặt bàn (khách hàng)
@@ -77,6 +82,16 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     // Báo cáo (admin)
     Route::get('/reports/overview', [ReportController::class, 'overview'])->middleware('role:admin');
     Route::get('/reports/revenue', [ReportController::class, 'revenue'])->middleware('role:admin');
+
+    // Món yêu thích & Thông báo (khách hàng)
+    Route::middleware('role:customer')->group(function () {
+        Route::get('/customers/me/favorites', [FavoriteController::class, 'index']);
+        Route::post('/customers/me/favorites/{food}', [FavoriteController::class, 'toggle']);
+
+        Route::get('/customers/me/notifications', [NotificationController::class, 'index']);
+        Route::patch('/customers/me/notifications/{id}/read', [NotificationController::class, 'markRead']);
+        Route::post('/customers/me/notifications/read-all', [NotificationController::class, 'markAllRead']);
+    });
 
     // ── Thao tác bàn: Chuyển bàn / Gộp bàn (NV Order + Admin) ──────────────
     Route::middleware('role:order_staff,admin')->group(function () {

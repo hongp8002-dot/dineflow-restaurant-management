@@ -10,6 +10,17 @@ class OrderResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        // Đọc tiền cọc từ reservation được load kèm (nếu có).
+        // OrderController::RELATIONS đã bao gồm 'reservation' để đảm bảo luôn được load.
+        $depositAmount = 0.0;
+        $reservation = $this->whenLoaded('reservation');
+        // $reservation là giá trị thực khi đã load, không phải MissingValue
+        if ($reservation && ! ($reservation instanceof \Illuminate\Http\Resources\MissingValue)) {
+            if ($reservation->isDepositPaid()) {
+                $depositAmount = (float) $reservation->deposit_amount;
+            }
+        }
+
         return [
             'id' => $this->id,
             'code' => $this->code,
@@ -29,6 +40,10 @@ class OrderResource extends JsonResource
             'subtotal' => (float) $this->total_amount,
             'total_quantity' => $this->whenLoaded('items', fn () => $this->items->sum('quantity')),
             'items' => $this->whenLoaded('items', fn () => $this->items->map(fn ($item) => OrderItemResource::make($item)->resolve())->all()),
+            // ID đặt bàn liên kết (nếu đơn được tạo từ lượt đặt bàn của khách).
+            'reservation_id' => $this->reservation_id,
+            // Tiền cọc được khấu trừ khi thanh toán (từ reservation.deposit_amount nếu đã cọc).
+            'deposit_amount' => $depositAmount,
             'created_at' => $this->created_at?->toIso8601String(),
         ];
     }

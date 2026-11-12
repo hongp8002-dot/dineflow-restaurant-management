@@ -116,23 +116,29 @@ class TableOperationController extends ApiController
                 $targetOrder = Order::findOrFail($target->current_order_id);
 
                 foreach ($sourceOrder->items as $item) {
-                    // Kiểm tra xem item đã có trong đơn đích chưa (cùng food + options)
+                    // Tìm item cùng food + price + note trong đơn đích.
+                    // Dùng `price` thay `options_snapshot` (cột không tồn tại).
+                    // Cùng price = cùng options combo (vì options ảnh hưởng price).
                     $existing = $targetOrder->items()
                         ->where('food_id', $item->food_id)
-                        ->where('options_snapshot', $item->options_snapshot)
+                        ->where('price', $item->price)
+                        ->where('note', $item->note)
                         ->first();
 
                     if ($existing) {
+                        // Cộng dồn số lượng, không cần cập nhật cột nào khác
+                        // vì price và line_total là computed attributes.
                         $existing->increment('quantity', $item->quantity);
-                        $existing->update(['total_price' => $existing->unit_price * $existing->fresh()->quantity]);
                     } else {
+                        // Sao chép item sang đơn đích với đúng các cột trong $fillable:
+                        // food_id, food_name, quantity, options, price, note.
                         $targetOrder->items()->create([
-                            'food_id' => $item->food_id,
-                            'quantity' => $item->quantity,
-                            'unit_price' => $item->unit_price,
-                            'total_price' => $item->total_price,
-                            'options_snapshot' => $item->options_snapshot,
-                            'note' => $item->note,
+                            'food_id'   => $item->food_id,
+                            'food_name' => $item->food_name,
+                            'quantity'  => $item->quantity,
+                            'price'     => $item->price,
+                            'options'   => $item->options,
+                            'note'      => $item->note,
                         ]);
                     }
                 }

@@ -17,7 +17,8 @@ use Illuminate\Validation\ValidationException;
 
 class OrderController extends ApiController
 {
-    private const RELATIONS = ['table', 'customer', 'staff', 'items'];
+    // 'reservation' được load để OrderResource có thể đọc deposit_amount từ đặt bàn kèm món.
+    private const RELATIONS = ['table', 'customer', 'staff', 'items', 'reservation'];
 
     public function __construct(private LineItemBuilder $builder) {}
 
