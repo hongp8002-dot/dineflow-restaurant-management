@@ -9,9 +9,12 @@ use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\MemberController;
 use App\Http\Controllers\Api\MenuController;
 use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\ReportController;
+use App\Http\Controllers\Api\ReportExportController;
 use App\Http\Controllers\Api\ReservationController;
 use App\Http\Controllers\Api\ShiftController;
+use App\Http\Controllers\Api\SettingsController;
 use App\Http\Controllers\Api\TableController;
 use App\Http\Controllers\Api\TableOperationController;
 use App\Http\Controllers\Api\Admin\CategoryAdminController;
@@ -33,13 +36,26 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('throttle:10,1')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/register', [AuthController::class, 'register']);
+
+    // Quên mật khẩu bằng mã OTP qua email (chỉ khách hàng)
+    Route::post('/password/forgot', [PasswordResetController::class, 'forgot']);
+    Route::post('/password/verify', [PasswordResetController::class, 'verify']);
+    Route::post('/password/reset', [PasswordResetController::class, 'reset']);
 });
+
+// Tải file Excel bằng link có chữ ký (app Admin xin link qua POST /reports/export-link, hết hạn 5 phút)
+Route::get('/reports/export/download', [ReportExportController::class, 'download'])
+    ->middleware('signed')
+    ->name('reports.export.download');
 
 // Cần đăng nhập và tài khoản không bị khóa
 Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
     Route::patch('/me/password', [AuthController::class, 'changePassword']);
+
+    // Cấu hình dùng chung: tài khoản nhận chuyển khoản, quy tắc thành viên (mọi vai trò)
+    Route::get('/settings', [SettingsController::class, 'show']);
 
     // Thực đơn, bàn, khuyến mãi: mọi vai trò đều xem được
     Route::get('/categories', [MenuController::class, 'categories']);
@@ -51,10 +67,16 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::get('/tables', [TableController::class, 'index']);
 
     // Đặt bàn (khách hàng)
+    // QUAN TRỌNG: /reservations/my phải đứng trước các route có {reservation}.
     Route::get('/reservations/my', [ReservationController::class, 'my']);
     Route::post('/reservations', [ReservationController::class, 'store'])->middleware('role:customer');
     Route::post('/reservations/{reservation}/confirm', [ReservationController::class, 'confirm'])->middleware('role:customer');
+    // Hủy: khách hủy lượt của mình; NV Order / Thu ngân / Admin hủy mọi lượt (kiểm tra trong controller)
     Route::patch('/reservations/{reservation}/cancel', [ReservationController::class, 'cancel']);
+
+    // Lịch đặt bàn của nhà hàng (NV Order, Thu ngân, Admin) và nhận bàn khi khách tới (NV Order, Thu ngân)
+    Route::get('/reservations', [ReservationController::class, 'index'])->middleware('role:order_staff,cashier,admin');
+    Route::post('/reservations/{reservation}/check-in', [ReservationController::class, 'checkIn'])->middleware('role:order_staff,cashier');
 
     // Đơn hàng
     Route::get('/orders', [OrderController::class, 'index']);
@@ -76,12 +98,18 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::patch('/shifts/{shift}/close', [ShiftController::class, 'close']);
     });
 
+    // Báo cáo ca (Admin xem mọi ca trong một ngày)
+    Route::get('/shifts', [ShiftController::class, 'index'])->middleware('role:admin');
+
     // Tra cứu thành viên theo mã (thu ngân dùng khi quét QR)
     Route::get('/members/{code}', [MemberController::class, 'show'])->middleware('role:cashier,admin');
 
     // Báo cáo (admin)
     Route::get('/reports/overview', [ReportController::class, 'overview'])->middleware('role:admin');
     Route::get('/reports/revenue', [ReportController::class, 'revenue'])->middleware('role:admin');
+    // Xuất Excel theo ngày / tháng / năm (cùng file với web /admin)
+    Route::get('/reports/export-periods', [ReportExportController::class, 'periods'])->middleware('role:admin');
+    Route::post('/reports/export-link', [ReportExportController::class, 'link'])->middleware('role:admin');
 
     // Món yêu thích & Thông báo (khách hàng)
     Route::middleware('role:customer')->group(function () {
@@ -106,7 +134,11 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('/users', [UserAdminController::class, 'store']);
         Route::put('/users/{user}', [UserAdminController::class, 'update']);
         Route::patch('/users/{user}/toggle-status', [UserAdminController::class, 'toggleStatus']);
+        Route::patch('/users/{user}/reset-password', [UserAdminController::class, 'resetPassword']);
         Route::delete('/users/{user}', [UserAdminController::class, 'destroy']);
+
+        // Đơn đã hủy (lý do, người hủy) theo ngày
+        Route::get('/cancelled-orders', [CancelOrderController::class, 'index']);
 
         // Danh mục
         Route::get('/categories', [CategoryAdminController::class, 'index']);
@@ -119,6 +151,7 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('/foods', [FoodAdminController::class, 'store']);
         Route::put('/foods/{food}', [FoodAdminController::class, 'update']);
         Route::patch('/foods/{food}/toggle-available', [FoodAdminController::class, 'toggleAvailable']);
+        Route::delete('/foods/{food}', [FoodAdminController::class, 'destroy']);
 
         // Bàn ăn
         Route::get('/tables', [TableAdminController::class, 'index']);

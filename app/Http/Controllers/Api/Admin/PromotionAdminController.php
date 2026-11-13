@@ -81,13 +81,14 @@ class PromotionAdminController extends ApiController
      * PATCH /api/admin/promotions/{promotion}/toggle-active
      *
      * Kích hoạt / Vô hiệu hóa khuyến mãi (không xóa).
-     * Vô hiệu hóa sẽ đặt valid_to = now() để ngừng ngay lập tức.
+     * Chỉ đổi is_active: tắt là ngừng áp dụng ngay (Promotion::isApplicableTo kiểm tra is_active),
+     * KHÔNG ghi đè ngày kết thúc — để bật lại vẫn còn đúng thời hạn ban đầu.
      */
     public function toggleActive(Promotion $promotion): JsonResponse
     {
         if ($promotion->is_active) {
-            // Vô hiệu hóa: đặt is_active = false và hết hạn ngay
-            $promotion->update(['is_active' => false, 'valid_to' => now()]);
+            // Vô hiệu hóa: ngừng áp dụng ngay, giữ nguyên thời hạn
+            $promotion->update(['is_active' => false]);
             $message = "Đã vô hiệu hóa khuyến mãi \"{$promotion->code}\"";
         } else {
             // Kích hoạt lại: chỉ set is_active = true (valid_to không thay đổi)

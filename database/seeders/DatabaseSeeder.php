@@ -279,7 +279,7 @@ class DatabaseSeeder extends Seeder
         $methods = [PaymentMethod::Cash, PaymentMethod::Qr, PaymentMethod::Card];
 
         foreach ($paidPlans as $daysAgo => $lines) {
-            $paidAt = now()->subDays($daysAgo)->setTime(12, 30);
+            $paidAt = $this->restaurantTime(now(config('restaurant.timezone'))->subDays($daysAgo)->setTime(12, 30));
             if ($paidAt->isFuture()) {
                 $paidAt = now()->subMinutes(1);
             }
@@ -314,7 +314,7 @@ class DatabaseSeeder extends Seeder
             'customer_id' => $users['customer']->id,
             'table_ids' => [$tables[3]->id, $tables[4]->id],
             'area' => 'Tầng 1',
-            'date_time' => now()->addDay()->setTime(19, 0),
+            'date_time' => $this->restaurantTime(now(config('restaurant.timezone'))->addDay()->setTime(19, 0)),
             'guest_count' => 8,
             'note' => 'Sinh nhật bạn, cần bàn gần cửa sổ.',
             'status' => ReservationStatus::Upcoming,
@@ -324,8 +324,7 @@ class DatabaseSeeder extends Seeder
                 $this->preOrderLine($foods['f13'], 2),
             ],
         ]);
-        $tables[3]->update(['status' => TableStatus::Reserved]);
-        $tables[4]->update(['status' => TableStatus::Reserved]);
+        // Không gán tables.status = reserved: trạng thái "đã đặt" được tính từ bảng reservations.
 
         // Sắp tới trong vài giờ: Bàn 9
         Reservation::create([
@@ -336,14 +335,13 @@ class DatabaseSeeder extends Seeder
             'guest_count' => 2,
             'status' => ReservationStatus::Upcoming,
         ]);
-        $tables[9]->update(['status' => TableStatus::Reserved]);
 
         // Đã hoàn thành và đã hủy
         Reservation::create([
             'customer_id' => $users['customer']->id,
             'table_ids' => [$tables[7]->id],
             'area' => 'Tầng 2',
-            'date_time' => now()->subDays(5)->setTime(18, 30),
+            'date_time' => $this->restaurantTime(now(config('restaurant.timezone'))->subDays(5)->setTime(18, 30)),
             'guest_count' => 3,
             'status' => ReservationStatus::Completed,
         ]);
@@ -351,11 +349,20 @@ class DatabaseSeeder extends Seeder
             'customer_id' => $users['customer']->id,
             'table_ids' => [$tables[10]->id],
             'area' => 'Tầng 2',
-            'date_time' => now()->subDays(2)->setTime(20, 0),
+            'date_time' => $this->restaurantTime(now(config('restaurant.timezone'))->subDays(2)->setTime(20, 0)),
             'guest_count' => 2,
             'note' => 'Khách báo bận.',
             'status' => ReservationStatus::Cancelled,
         ]);
+    }
+
+    /**
+     * Giờ mẫu viết theo giờ của quán (vd 19:00 tối giờ VN) rồi đổi về múi giờ lưu trong database (UTC).
+     * Không đổi thì 19:00 bị lưu là 19:00 UTC → app hiển thị 02:00 sáng hôm sau.
+     */
+    private function restaurantTime(\Illuminate\Support\Carbon $time): \Illuminate\Support\Carbon
+    {
+        return $time->setTimezone(config('app.timezone'));
     }
 
     private function preOrderLine(Food $food, int $quantity, array $optionNames = []): array

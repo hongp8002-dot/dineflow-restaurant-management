@@ -76,4 +76,24 @@ class AppNotification extends Model
             'data'        => ['reservation_id' => $reservationId],
         ]);
     }
+
+    /**
+     * Tạo thông báo "Lượt đặt bị hủy do quá giờ" (khách trễ quá Reservation::GRACE_MINUTES phút).
+     * Dùng type reservation_cancelled để app hiển thị giống thông báo hủy.
+     */
+    public static function reservationNoShow(Reservation $reservation): self
+    {
+        $deposit = $reservation->isDepositPaid()
+            ? ' Tiền cọc '.number_format((float) $reservation->deposit_amount, 0, ',', '.').'đ không được hoàn lại.'
+            : '';
+
+        return self::create([
+            'customer_id' => $reservation->customer_id,
+            'type'        => 'reservation_cancelled',
+            'title'       => 'Lượt đặt bàn bị hủy do quá giờ',
+            'body'        => 'Lượt đặt bàn lúc '.$reservation->date_time->format('H:i d/m/Y')
+                .' đã bị hủy vì bạn chưa đến sau '.Reservation::GRACE_MINUTES.' phút.'.$deposit,
+            'data'        => ['reservation_id' => $reservation->id],
+        ]);
+    }
 }

@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Enums\TableStatus;
 use App\Filament\Resources\DiningTableResource\Pages;
 use App\Models\DiningTable;
+use App\Models\Reservation;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
@@ -105,6 +106,26 @@ class DiningTableResource extends Resource
                     ->placeholder('—'),
                 Tables\Columns\TextColumn::make('currentOrder.code')
                     ->label('Đơn hiện tại')
+                    ->placeholder('—'),
+                // Lượt đặt sắp tới trong hôm nay (giờ quán): để Admin biết bàn đặt trước là của khách nào
+                Tables\Columns\TextColumn::make('next_reservation')
+                    ->label('Đặt trước hôm nay')
+                    ->state(function (DiningTable $record): ?string {
+                        $tz = config('restaurant.timezone');
+                        // Lọc bàn bằng PHP (table_ids là mảng JSON) để chạy được cả MySQL lẫn SQLite khi test
+                        $reservation = Reservation::blocking()
+                            ->with('customer')
+                            ->where('date_time', '>=', now()->subMinutes(Reservation::GRACE_MINUTES))
+                            ->onRestaurantDate(now($tz)->toDateString())
+                            ->orderBy('date_time')
+                            ->get()
+                            ->first(fn (Reservation $r) => in_array($record->id, $r->table_ids ?? []));
+
+                        return $reservation
+                            ? $reservation->date_time->copy()->setTimezone($tz)->format('H:i')
+                                .' · '.$reservation->code.' · '.($reservation->customer?->name ?? '')
+                            : null;
+                    })
                     ->placeholder('—'),
             ])
             ->filters([

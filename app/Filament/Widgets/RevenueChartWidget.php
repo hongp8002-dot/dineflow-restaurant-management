@@ -24,14 +24,16 @@ class RevenueChartWidget extends ChartWidget
 
     protected function getData(): array
     {
-        $start = today()->subDays(6);
+        // Ngày theo giờ của quán; doanh thu gồm tiền cọc (Invoice::revenueAmount), giống app Admin
+        $tz = config('restaurant.timezone');
+        $start = now($tz)->startOfDay()->subDays(6);
 
         // Gom theo ngày bằng PHP để chạy giống nhau trên SQLite / MySQL / PostgreSQL
         $perDay = Invoice::paid()
-            ->where('paid_at', '>=', $start)
-            ->get(['total', 'paid_at'])
-            ->groupBy(fn (Invoice $invoice) => $invoice->paid_at->format('Y-m-d'))
-            ->map(fn ($group) => (float) $group->sum('total'));
+            ->where('paid_at', '>=', $start->copy()->setTimezone(config('app.timezone')))
+            ->get(['total', 'deposit_amount', 'paid_at'])
+            ->groupBy(fn (Invoice $invoice) => $invoice->paid_at->copy()->setTimezone($tz)->format('Y-m-d'))
+            ->map(fn ($group) => Invoice::sumRevenue($group));
 
         $labels = [];
         $values = [];

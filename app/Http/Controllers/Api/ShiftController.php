@@ -6,6 +6,7 @@ use App\Enums\ShiftStatus;
 use App\Models\Shift;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -14,9 +15,31 @@ use Illuminate\Validation\ValidationException;
  * POST   /api/shifts              - Mở ca mới (nhập tiền đầu ca)
  * GET    /api/shifts/current      - Xem ca đang mở của bản thân
  * PATCH  /api/shifts/{id}/close   - Đóng ca (nhập tiền đếm được)
+ * GET    /api/shifts?date=         - Admin xem báo cáo các ca trong một ngày
  */
 class ShiftController extends ApiController
 {
+    /**
+     * GET /api/shifts?date=2026-11-12  (Admin)
+     *
+     * Báo cáo các ca MỞ trong một ngày (mặc định hôm nay), mới nhất trước: thu ngân, tiền đầu ca,
+     * doanh thu theo phương thức, tiền mặt phải có, tiền đếm được và chênh lệch khi đóng ca.
+     */
+    public function index(Request $request): JsonResponse
+    {
+        $data = $request->validate(['date' => ['nullable', 'date_format:Y-m-d']]);
+        $date = isset($data['date']) ? Carbon::createFromFormat('Y-m-d', $data['date']) : now();
+
+        $shifts = Shift::with('cashier')
+            ->whereDate('opened_at', $date->toDateString())
+            ->orderByDesc('opened_at')
+            ->get()
+            ->map(fn (Shift $shift) => $this->formatShift($shift))
+            ->values();
+
+        return $this->ok($shifts);
+    }
+
     /**
      * Xem ca đang mở của thu ngân đang đăng nhập.
      * Trả về null nếu chưa mở ca.
@@ -95,14 +118,11 @@ class ShiftController extends ApiController
     {
         $expectedCash     = $shift->expectedCash();
         $countedCash      = $shift->closing_cash_counted !== null ? (float) $shift->closing_cash_counted : null;
-        $cashDifference   = $countedCash !== null ? $countedCash - $expectedCash : null;
+        $cashDifference   = $shift->cashDifference();
 
-        // Thống kê doanh thu theo phương thức
-        $invoices = $shift->invoices()->get(['payment_method', 'total']);
-        $byMethod = [];
-        foreach (['cash', 'qr', 'card'] as $method) {
-            $byMethod[$method] = (float) $invoices->where('payment_method', $method)->sum('total');
-        }
+        // Doanh thu theo phương thức: cùng hàm với trang Báo cáo ca trên web /admin
+        $byMethod = $shift->revenueByMethod();
+        $invoiceCount = $shift->invoices()->count();
         $totalRevenue = array_sum($byMethod);
 
         return [
@@ -116,7 +136,7 @@ class ShiftController extends ApiController
             'cash_difference'       => $cashDifference,
             'revenue_by_method'     => $byMethod,
             'total_revenue'         => $totalRevenue,
-            'invoice_count'         => $invoices->count(),
+            'invoice_count'         => $invoiceCount,
             'opened_at'             => $shift->opened_at?->toIso8601String(),
             'closed_at'             => $shift->closed_at?->toIso8601String(),
         ];

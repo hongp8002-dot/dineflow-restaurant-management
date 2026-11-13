@@ -12,8 +12,8 @@ class InvoiceResource extends JsonResource
     {
         $order = $this->order;
 
-        // Tính điểm khách được cộng (Kiểu A: floor(total / 10000) × 2)
-        $pointsEarned = (int) floor((float) $this->total / 10000) * 2;
+        // Điểm khách được cộng cho hóa đơn này (quy tắc Kiểu A trong config/loyalty.php)
+        $pointsEarned = \App\Services\LoyaltyRules::pointsEarned((float) $this->total);
 
         return [
             'id'             => $this->id,

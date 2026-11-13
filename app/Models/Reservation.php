@@ -9,9 +9,23 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Carbon;
 
 class Reservation extends Model
 {
+    /**
+     * Một bàn đã có lượt đặt thì không nhận lượt khác trong ±90 phút quanh giờ đó.
+     * Cũng là khoảng "sắp tới" để chặn bàn đang có khách ngồi (xem DiningTable::isBookableAt).
+     * Dùng chung cho kiểm tra bàn trống (TableController) và đặt bàn (ReservationController).
+     */
+    public const WINDOW_MINUTES = 90;
+
+    /** Khách trễ quá số phút này so với giờ hẹn thì lượt đặt tự hủy (coi như không đến), mất cọc. */
+    public const GRACE_MINUTES = 15;
+
+    /** Nhận bàn sớm tối đa số phút này trước giờ hẹn (nếu bàn trống). */
+    public const EARLY_CHECKIN_MINUTES = 30;
+
     protected $fillable = [
         'code',
         'customer_id',
@@ -137,7 +151,84 @@ class Reservation extends Model
             ->update(['status' => ReservationStatus::Cancelled]);
     }
 
+    /**
+     * Hủy các lượt đặt đã xác nhận mà khách trễ quá GRACE_MINUTES phút (không đến),
+     * để bàn được nhả cho khách khác. Tiền cọc giữ nguyên trong DB (không hoàn).
+     * Gửi thông báo cho từng khách bị hủy.
+     *
+     * Cập nhật từng dòng kèm điều kiện status = upcoming: nếu hai request chạy cùng lúc,
+     * chỉ request nào đổi được dòng đó mới gửi thông báo → không gửi trùng.
+     */
+    public static function expireNoShows(): void
+    {
+        $lapsed = static::where('status', ReservationStatus::Upcoming)
+            ->whereNull('hold_expires_at')
+            ->where('date_time', '<', now()->subMinutes(self::GRACE_MINUTES))
+            ->get();
+
+        foreach ($lapsed as $reservation) {
+            $changed = static::whereKey($reservation->id)
+                ->where('status', ReservationStatus::Upcoming)
+                ->update(['status' => ReservationStatus::Cancelled]);
+
+            if ($changed) {
+                AppNotification::reservationNoShow($reservation);
+            }
+        }
+    }
+
+    /**
+     * Hủy lượt đặt đang "Sắp tới" và báo cho khách. Tiền cọc KHÔNG hoàn: deposit_amount và
+     * deposit_paid_at giữ nguyên làm bằng chứng đối soát. Bàn không cần trả lại vì trạng thái
+     * "đã đặt" của bàn tính từ các lượt còn "Sắp tới".
+     * Dùng chung cho API (khách / nhân viên trên app) và nút Hủy trên web /admin.
+     */
+    public function cancelAndNotify(): void
+    {
+        $this->update(['status' => ReservationStatus::Cancelled, 'hold_expires_at' => null]);
+
+        AppNotification::reservationCancelled(
+            $this->customer_id,
+            $this->id,
+            $this->date_time->format('H:i d/m/Y'),
+        );
+    }
+
+    /**
+     * Dọn mọi lượt đặt không còn hiệu lực trước khi đọc hoặc kiểm tra xung đột:
+     * lượt giữ bàn quá hạn và lượt khách đến trễ quá GRACE_MINUTES phút.
+     */
+    public static function expireStale(): void
+    {
+        static::expireLapsedHolds();
+        static::expireNoShows();
+    }
+
+    /** Thời điểm sớm nhất được nhận bàn. */
+    public function checkInOpensAt(): \Illuminate\Support\Carbon
+    {
+        return $this->date_time->copy()->subMinutes(self::EARLY_CHECKIN_MINUTES);
+    }
+
+    /** Thời điểm muộn nhất được nhận bàn (sau đó lượt đặt tự hủy). */
+    public function checkInClosesAt(): \Illuminate\Support\Carbon
+    {
+        return $this->date_time->copy()->addMinutes(self::GRACE_MINUTES);
+    }
+
     /* ---------------- Scopes ---------------- */
+
+    /**
+     * Lượt đặt có giờ đến nằm trong NGÀY $date (Y-m-d) theo giờ của quán (config restaurant.timezone).
+     * Database lưu UTC nên không dùng whereDate: 02:00 sáng 14/11 giờ VN = 19:00 ngày 13/11 UTC.
+     * Dùng chung cho API GET /reservations (app) và trang Lịch đặt bàn trên web /admin.
+     */
+    public function scopeOnRestaurantDate(Builder $query, string $date): Builder
+    {
+        $start = Carbon::parse($date, config('restaurant.timezone'))->startOfDay()->setTimezone(config('app.timezone'));
+
+        return $query->where('date_time', '>=', $start)->where('date_time', '<', $start->copy()->addDay());
+    }
 
     public function scopeUpcoming(Builder $query): Builder
     {

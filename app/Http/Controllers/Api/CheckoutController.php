@@ -7,6 +7,8 @@ use App\Enums\OrderStatus;
 use App\Enums\PaymentMethod;
 use App\Enums\PaymentStatus;
 use App\Enums\ShiftStatus;
+use App\Enums\UserRole;
+use App\Enums\UserStatus;
 use App\Http\Resources\InvoiceResource;
 use App\Models\Invoice;
 use App\Models\Order;
@@ -14,6 +16,7 @@ use App\Models\Promotion;
 use App\Models\Reservation;
 use App\Models\Shift;
 use App\Models\User;
+use App\Services\LoyaltyRules;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,13 +27,17 @@ class CheckoutController extends ApiController
 {
     /**
      * POST /api/orders/{id}/pay
-     * body: { "payment_method": "cash|qr|card", "promotion_code": "WELCOME10" }
+     * body: { "payment_method": "cash|qr|card", "promotion_code": "WELCOME10", "member_code": "DF-MB0001" }
+     *
+     * member_code: mã thành viên thu ngân quét QR / nhập tay. Đơn chưa gắn khách (vd đơn tại bàn do
+     * NV Order tạo) thì gắn khách này vào đơn để giảm theo hạng và cộng điểm. Đơn đã gắn khách
+     * khác (đơn khách tự đặt / nhận bàn đặt trước) thì từ chối, không đổi chủ đơn.
      *
      * Quy tắc Kiểu A:
      * - Không dùng điểm để trừ tiền.
-     * - Giảm theo hạng: Silver 0%, Gold ≥500đ giảm 5%, Platinum ≥1500đ giảm 10%.
+     * - Giảm theo hạng: theo hạng thành viên (ngưỡng điểm và % trong config/loyalty.php).
      * - Giảm = max(giảm theo hạng, giảm theo voucher). Không cộng dồn.
-     * - Cộng điểm: floor(total_thực_trả / 10000) × 2.
+     * - Cộng điểm: theo số tiền thực trả (config/loyalty.php).
      * - Thu ngân phải có ca đang mở mới thanh toán được.
      * - Tiền cọc (nếu đơn gắn đặt bàn có đặt món trước) được khấu trừ SAU khi tính giảm giá.
      */
@@ -39,6 +46,7 @@ class CheckoutController extends ApiController
         $data = $request->validate([
             'payment_method' => ['required', Rule::enum(PaymentMethod::class)],
             'promotion_code' => ['nullable', 'string', 'max:30'],
+            'member_code' => ['nullable', 'string', 'max:30'],
         ]);
 
         $invoice = DB::transaction(function () use ($request, $data, $order) {
@@ -93,12 +101,30 @@ class CheckoutController extends ApiController
             $tierDiscount    = 0.0;
             $customer        = $order->customer_id ? User::lockForUpdate()->find($order->customer_id) : null;
 
+            // Thu ngân quét / nhập mã thành viên → gắn khách vào đơn (cùng điều kiện với GET /members/{code})
+            if (filled($data['member_code'] ?? null)) {
+                $member = User::where('member_code', strtoupper(trim($data['member_code'])))
+                    ->where('role', UserRole::Customer)
+                    ->where('status', UserStatus::Active)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $member) {
+                    throw ValidationException::withMessages(['member_code' => 'Không tìm thấy thành viên có mã "'.$data['member_code'].'".']);
+                }
+                if ($customer && $customer->id !== $member->id) {
+                    throw ValidationException::withMessages([
+                        'member_code' => "Đơn này đã gắn với khách {$customer->name}, không đổi sang thành viên khác.",
+                    ]);
+                }
+                if (! $customer) {
+                    $order->update(['customer_id' => $member->id]);
+                    $customer = $member;
+                }
+            }
+
             if ($customer) {
-                $tierPercent  = match (true) {
-                    $customer->points >= 1500 => 10, // Platinum
-                    $customer->points >= 500  => 5,  // Gold
-                    default                   => 0,  // Silver
-                };
+                $tierPercent  = LoyaltyRules::discountPercentFor((int) $customer->points); // config/loyalty.php
                 $tierDiscount = round($subtotal * $tierPercent / 100, 2);
             }
 
@@ -143,9 +169,9 @@ class CheckoutController extends ApiController
             ]);
             $order->releaseTableIfDone();
 
-            // ── 8. Cộng điểm cho khách (Kiểu A: floor(total / 10000) × 2) ─
+            // ── 8. Cộng điểm cho khách (Kiểu A, config/loyalty.php) ─
             if ($customer && $total > 0) {
-                $pointsEarned = (int) floor($total / 10000) * 2;
+                $pointsEarned = LoyaltyRules::pointsEarned($total);
                 if ($pointsEarned > 0) {
                     $customer->increment('points', $pointsEarned);
                 }

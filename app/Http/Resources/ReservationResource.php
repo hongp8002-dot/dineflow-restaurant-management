@@ -16,6 +16,9 @@ class ReservationResource extends JsonResource
             'id' => $this->id,
             'code' => $this->code,
             'customer_id' => $this->customer_id,
+            // Chỉ có khi controller đã load quan hệ customer (danh sách cho nhân viên), tránh truy vấn thừa.
+            'customer_name' => $this->whenLoaded('customer', fn () => $this->customer?->name),
+            'customer_phone' => $this->whenLoaded('customer', fn () => $this->customer?->phone),
             'table_ids' => $this->table_ids,
             'table_numbers' => $tables->pluck('number')->all(),
             'area' => $this->area,

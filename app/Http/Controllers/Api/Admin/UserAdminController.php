@@ -95,6 +95,18 @@ class UserAdminController extends ApiController
     }
 
     /**
+     * PATCH /api/admin/users/{user}/reset-password
+     *
+     * Đặt lại mật khẩu nhân viên về 123456 và đăng xuất mọi thiết bị (User::resetToDefaultPassword).
+     */
+    public function resetPassword(User $user): JsonResponse
+    {
+        $user->resetToDefaultPassword();
+
+        return $this->ok(null, "Đã đặt lại mật khẩu của {$user->name} về ".User::DEFAULT_PASSWORD.'. Nhân viên đăng nhập lại và tự đổi mật khẩu.');
+    }
+
+    /**
      * PATCH /api/admin/users/{user}/toggle-status
      *
      * Khóa / Kích hoạt tài khoản. Không xóa — giữ lịch sử đơn hàng.

@@ -54,6 +54,36 @@ class Food extends Model
         return $this->hasMany(OrderItem::class);
     }
 
+    /**
+     * Lý do không được xóa món, hoặc null nếu xóa được. Dùng chung cho app Admin (API) và web /admin.
+     * - Món nằm trong món đặt trước của lượt đặt "Sắp tới": nhận bàn sẽ không chép được món vào đơn.
+     * - Món nằm trong đơn chưa thanh toán: đơn đang phục vụ mất liên kết món.
+     * Hóa đơn cũ đã thanh toán không chặn: dòng món giữ tên món (food_name) nên báo cáo không đổi.
+     */
+    public function deletionBlockedReason(): ?string
+    {
+        $inOpenOrder = $this->orderItems()
+            ->whereHas('order', fn (Builder $q) => $q
+                ->where('payment_status', '!=', \App\Enums\PaymentStatus::Paid)
+                ->where('status', '!=', \App\Enums\OrderStatus::Cancelled))
+            ->exists();
+
+        if ($inOpenOrder) {
+            return "Không thể xóa \"{$this->name}\" vì món đang có trong đơn chưa thanh toán. Hãy ẩn món (hết món) thay vì xóa.";
+        }
+
+        $inPreOrder = Reservation::where('status', \App\Enums\ReservationStatus::Upcoming)
+            ->whereNotNull('pre_order_items')
+            ->get(['id', 'pre_order_items'])
+            ->contains(fn (Reservation $r) => collect($r->pre_order_items)->contains('food_id', $this->id));
+
+        if ($inPreOrder) {
+            return "Không thể xóa \"{$this->name}\" vì khách đã đặt trước món này cho lượt đặt bàn sắp tới. Hãy ẩn món (hết món) thay vì xóa.";
+        }
+
+        return null;
+    }
+
     /* ---------------- Accessors ---------------- */
 
     /**

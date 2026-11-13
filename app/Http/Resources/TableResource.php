@@ -24,6 +24,8 @@ class TableResource extends JsonResource
             'serving_since' => $this->serving_since?->toIso8601String(),
             'current_order_id' => $this->current_order_id,
             'next_reservation_at' => $this->resource->getAttribute('next_reservation_at'),
+            // Lượt đặt đang giữ bàn: mã, giờ, khách, số khách, tiền cọc (chỉ có ở GET /tables)
+            'next_reservation' => $this->resource->getAttribute('next_reservation'),
             'is_locked' => (bool) $this->is_locked,
             'is_active' => (bool) $this->is_active,
         ];

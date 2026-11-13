@@ -8,6 +8,7 @@ use App\Enums\UserRole;
 use App\Http\Resources\OrderResource;
 use App\Models\DiningTable;
 use App\Models\Order;
+use App\Models\Reservation;
 use App\Services\LineItemBuilder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -94,6 +95,11 @@ class OrderController extends ApiController
         $lines = $this->builder->build($data['items']);
         $tableId = $isCustomer ? null : ($data['table_id'] ?? null);
 
+        // Lượt đặt khách trễ quá 15 phút đã tự hủy → không còn chặn bàn bên dưới.
+        if ($tableId) {
+            Reservation::expireStale();
+        }
+
         [$order, $appended] = DB::transaction(function () use ($data, $lines, $user, $isCustomer, $tableId) {
             $table = $tableId ? DiningTable::lockForUpdate()->findOrFail($tableId) : null;
             $order = null;
@@ -106,6 +112,13 @@ class OrderController extends ApiController
                     $order = $existing;
                     $appended = true;
                 }
+            }
+
+            // Mở bàn mới cho khách vãng lai: không được lấy bàn đang giữ cho khách đặt trước
+            // (có lượt đặt trong 90 phút tới, hoặc đã tới giờ và còn trong 15 phút chờ).
+            // Khách đặt tới thì dùng "Nhận bàn" ở màn Lịch đặt bàn, không tạo đơn ở đây.
+            if (! $order && $table && ($reason = $table->walkInBlockReason())) {
+                throw ValidationException::withMessages(['table_id' => $reason]);
             }
 
             $order ??= Order::create([
@@ -154,8 +167,13 @@ class OrderController extends ApiController
             return $this->fail("Không thể chuyển đơn từ \"{$order->status->getLabel()}\" sang \"{$to->getLabel()}\".", 422);
         }
 
-        if ($to === OrderStatus::Cancelled && $order->isPaid()) {
-            return $this->fail('Đơn đã thanh toán, không thể hủy.', 422);
+        // Hủy đơn phải qua PATCH /orders/{id}/cancel (Thu ngân / Admin, bắt buộc lý do)
+        if ($to === OrderStatus::Cancelled) {
+            return $this->fail('Hủy đơn dùng chức năng "Hủy đơn" của Thu ngân / Admin và phải chọn lý do.', 422);
+        }
+
+        if ($reason = $order->statusChangeBlockedReason($to)) {
+            return $this->fail($reason, 422);
         }
 
         $order->update(['status' => $to]);

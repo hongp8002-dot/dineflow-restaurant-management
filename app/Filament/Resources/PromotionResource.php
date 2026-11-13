@@ -100,7 +100,7 @@ class PromotionResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                // Không xóa (giống app / PromotionAdminController): hóa đơn cũ còn tham chiếu voucher.
             ])
             ->defaultSort('valid_from', 'desc');
     }

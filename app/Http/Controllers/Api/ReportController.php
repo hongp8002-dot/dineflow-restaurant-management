@@ -23,11 +23,14 @@ class ReportController extends ApiController
 
     /**
      * GET /api/reports/overview  (admin)
-     * Số liệu cho Dashboard và Báo cáo doanh thu: doanh thu = tổng hóa đơn đã thanh toán, theo giờ của hệ thống.
+     * Số liệu cho Dashboard và Báo cáo doanh thu: doanh thu = Invoice::revenueAmount()
+     * (thực thu tại quầy + tiền cọc) của hóa đơn đã thanh toán.
+     * Ngày / tuần / tháng tính theo giờ của quán (config restaurant.timezone) — database lưu UTC —
+     * nên khớp với file Excel (ReportExporter) và lịch đặt bàn.
      */
     public function overview(): JsonResponse
     {
-        $now = now();
+        $now = now(config('restaurant.timezone'));
         $today = $now->copy()->startOfDay();
         $thisWeek = $now->copy()->startOfWeek(); // thứ Hai
         $firstMonth = $now->copy()->startOfMonth()->subMonths(5);
@@ -36,14 +39,14 @@ class ReportController extends ApiController
 
         // Mọi mốc cần thống kê nằm trong 6 tháng gần nhất (6 tháng luôn dài hơn 6 tuần và 7 ngày).
         $invoices = Invoice::paid()
-            ->where('paid_at', '>=', $firstMonth)
-            ->get(['paid_at', 'total']);
+            ->where('paid_at', '>=', $this->forDb($firstMonth))
+            ->get(['paid_at', 'total', 'deposit_amount']);
 
-        $sum = fn (Carbon $from, ?Carbon $to = null): float => (float) $invoices
-            ->filter(fn (Invoice $i) => $i->paid_at >= $from && ($to === null || $i->paid_at < $to))
-            ->sum('total');
+        // So sánh mốc thời gian (Carbon so theo thời điểm thật, không phụ thuộc múi giờ)
+        $sum = fn (Carbon $from, ?Carbon $to = null): float => Invoice::sumRevenue($invoices
+            ->filter(fn (Invoice $i) => $i->paid_at >= $from && ($to === null || $i->paid_at < $to)));
 
-        $todayOrders = Order::where('created_at', '>=', $today)
+        $todayOrders = Order::where('created_at', '>=', $this->forDb($today))
             ->where('status', '!=', OrderStatus::Cancelled);
 
         return $this->ok([
@@ -60,7 +63,7 @@ class ReportController extends ApiController
             'revenue_by_month' => $this->series(5, $firstMonth, fn (Carbon $d) => $d->copy()->addMonth(), fn (Carbon $d) => 'T' . $d->month, $sum),
 
             'top_foods_days' => self::TOP_FOODS_DAYS,
-            'top_foods' => $this->topFoods($today->copy()->subDays(self::TOP_FOODS_DAYS - 1)),
+            'top_foods' => $this->topFoods($this->forDb($today->copy()->subDays(self::TOP_FOODS_DAYS - 1))),
         ]);
     }
 
@@ -72,14 +75,19 @@ class ReportController extends ApiController
     {
         $data = $request->validate([
             'from' => ['required', 'date_format:Y-m-d'],
-            'to' => ['required', 'date_format:Y-m-d', 'after_or_equal:from', 'before_or_equal:today'],
+            'to' => ['required', 'date_format:Y-m-d', 'after_or_equal:from'],
         ], [
             'to.after_or_equal' => 'Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.',
-            'to.before_or_equal' => 'Không chọn được ngày trong tương lai.',
         ]);
 
-        $from = Carbon::createFromFormat('Y-m-d', $data['from'])->startOfDay();
-        $to = Carbon::createFromFormat('Y-m-d', $data['to'])->startOfDay();
+        // Ngày theo giờ của quán
+        $tz = config('restaurant.timezone');
+        $from = Carbon::createFromFormat('!Y-m-d', $data['from'], $tz)->startOfDay();
+        $to = Carbon::createFromFormat('!Y-m-d', $data['to'], $tz)->startOfDay();
+
+        if ($to->gt(now($tz)->startOfDay())) {
+            return $this->fail('Không chọn được ngày trong tương lai.', 422);
+        }
         $days = (int) $from->diffInDays($to) + 1;
 
         if ($days > self::MAX_RANGE_DAYS) {
@@ -87,20 +95,19 @@ class ReportController extends ApiController
         }
 
         $invoices = Invoice::paid()
-            ->where('paid_at', '>=', $from)
-            ->where('paid_at', '<', $to->copy()->addDay())
-            ->get(['paid_at', 'total']);
+            ->where('paid_at', '>=', $this->forDb($from))
+            ->where('paid_at', '<', $this->forDb($to->copy()->addDay()))
+            ->get(['paid_at', 'total', 'deposit_amount']);
 
-        $sum = fn (Carbon $start, ?Carbon $end = null): float => (float) $invoices
-            ->filter(fn (Invoice $i) => $i->paid_at >= $start && ($end === null || $i->paid_at < $end))
-            ->sum('total');
+        $sum = fn (Carbon $start, ?Carbon $end = null): float => Invoice::sumRevenue($invoices
+            ->filter(fn (Invoice $i) => $i->paid_at >= $start && ($end === null || $i->paid_at < $end)));
 
         $points = $this->series($days - 1, $from, fn (Carbon $d) => $d->copy()->addDay(), fn (Carbon $d) => $d->format('d/m'), $sum);
 
         return $this->ok([
             'from' => $from->toDateString(),
             'to' => $to->toDateString(),
-            'total' => (float) $invoices->sum('total'),
+            'total' => Invoice::sumRevenue($invoices),
             'revenue_by_day' => $points,
         ]);
     }
@@ -121,6 +128,12 @@ class ReportController extends ApiController
         }
 
         return $points;
+    }
+
+    /** Đổi mốc (giờ của quán) sang múi giờ lưu trong database để đưa vào câu truy vấn. */
+    private function forDb(Carbon $moment): Carbon
+    {
+        return $moment->copy()->setTimezone(config('app.timezone'));
     }
 
     private function weekdayLabel(Carbon $day): string

@@ -45,6 +45,12 @@ class OrderResource extends JsonResource
             // Tiền cọc được khấu trừ khi thanh toán (từ reservation.deposit_amount nếu đã cọc).
             'deposit_amount' => $depositAmount,
             'created_at' => $this->created_at?->toIso8601String(),
+            // Thông tin hủy đơn (chỉ có khi đơn đã hủy)
+            'cancel_reason' => $this->cancel_reason?->value,
+            'cancel_reason_label' => $this->cancel_reason?->getLabel(),
+            'cancel_note' => $this->cancel_note,
+            'cancelled_by_name' => $this->whenLoaded('cancelledBy', fn () => $this->cancelledBy?->name),
+            'cancelled_at' => $this->cancelled_at?->toIso8601String(),
         ];
     }
 }

@@ -7,6 +7,7 @@ use App\Http\Resources\CategoryResource;
 use App\Models\Category;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 /**
  * CRUD danh mục món ăn (chỉ Admin).
@@ -30,7 +31,8 @@ class CategoryAdminController extends ApiController
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'name' => ['required', 'string', 'max:100'],
+            // Tên danh mục là duy nhất trong DB (unique) → báo lỗi rõ ràng thay vì lỗi 500
+            'name' => ['required', 'string', 'max:100', 'unique:categories,name'],
             'icon' => ['nullable', 'string', 'max:50'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
         ]);
@@ -46,7 +48,7 @@ class CategoryAdminController extends ApiController
     public function update(Request $request, Category $category): JsonResponse
     {
         $data = $request->validate([
-            'name' => ['sometimes', 'required', 'string', 'max:100'],
+            'name' => ['sometimes', 'required', 'string', 'max:100', Rule::unique('categories', 'name')->ignore($category->id)],
             'icon' => ['nullable', 'string', 'max:50'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
         ]);
@@ -64,14 +66,9 @@ class CategoryAdminController extends ApiController
      */
     public function destroy(Category $category): JsonResponse
     {
-        $foodCount = $category->foods()->count();
-
-        if ($foodCount > 0) {
-            return $this->fail(
-                "Không thể xóa danh mục \"{$category->name}\" vì còn $foodCount món. "
-                . 'Hãy chuyển hoặc ẩn các món trước.',
-                422
-            );
+        // Cùng quy tắc với trang Danh mục trên web /admin
+        if ($reason = $category->deletionBlockedReason()) {
+            return $this->fail($reason, 422);
         }
 
         $name = $category->name;

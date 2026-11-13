@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\ApiController;
 use App\Http\Resources\OrderResource;
 use App\Models\DiningTable;
 use App\Models\Order;
+use App\Models\Reservation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -57,6 +58,12 @@ class TableOperationController extends ApiController
             return $this->fail("Bàn {$target->number} đang bị khóa.", 422);
         }
 
+        // Bàn đích đang giữ cho khách đặt trước thì không chuyển khách khác sang.
+        Reservation::expireStale();
+        if ($reason = $target->walkInBlockReason()) {
+            return $this->fail($reason, 422);
+        }
+
         $order = Order::findOrFail($table->current_order_id);
 
         DB::transaction(function () use ($table, $target, $order) {
@@ -103,6 +110,14 @@ class TableOperationController extends ApiController
             return $this->fail("Bàn {$target->number} đang bị khóa.", 422);
         }
 
+        // Gộp sang bàn trống = chuyển bàn → bàn đích không được đang giữ cho khách đặt trước.
+        if ($target->status === TableStatus::Empty || $target->current_order_id === null) {
+            Reservation::expireStale();
+            if ($reason = $target->walkInBlockReason()) {
+                return $this->fail($reason, 422);
+            }
+        }
+
         $sourceOrder = Order::with('items')->findOrFail($table->current_order_id);
 
         DB::transaction(function () use ($table, $target, $sourceOrder, $data) {
@@ -143,9 +158,18 @@ class TableOperationController extends ApiController
                     }
                 }
 
-                // Hủy đơn nguồn và giải phóng bàn nguồn
+                // Đơn nguồn là đơn nhận bàn đặt trước → chuyển liên kết lượt đặt sang đơn đích,
+                // để khi thanh toán thu ngân vẫn trừ được tiền cọc của khách.
+                if ($sourceOrder->reservation_id && ! $targetOrder->reservation_id) {
+                    $targetOrder->update(['reservation_id' => $sourceOrder->reservation_id]);
+                }
+
+                // Món đã sao chép sang → tính lại tổng tiền đơn đích
+                $targetOrder->recalculateTotal();
+
+                // Hủy đơn nguồn và giải phóng mọi bàn của nó (kể cả bàn ghép)
                 $sourceOrder->update(['status' => OrderStatus::Cancelled]);
-                $table->release();
+                $sourceOrder->releaseTableIfDone();
             }
         });
 

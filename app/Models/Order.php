@@ -22,6 +22,10 @@ class Order extends Model
         'payment_status',
         'note',
         'total_amount',
+        'cancel_reason',
+        'cancel_note',
+        'cancelled_by',
+        'cancelled_at',
     ];
 
     protected function casts(): array
@@ -30,6 +34,8 @@ class Order extends Model
             'status' => OrderStatus::class,
             'payment_status' => PaymentStatus::class,
             'total_amount' => 'decimal:2',
+            'cancel_reason' => \App\Enums\CancelReason::class,
+            'cancelled_at' => 'datetime',
         ];
     }
 
@@ -101,19 +107,80 @@ class Order extends Model
 
     /**
      * Trả bàn về trống khi đơn đã kết thúc: bị hủy, hoặc hoàn thành và đã thanh toán.
-     * Chỉ trả bàn nếu bàn vẫn đang gắn với chính đơn này.
+     *
+     * Trả MỌI bàn đang gắn với chính đơn này (current_order_id = id đơn): khách đặt ghép
+     * nhiều bàn (vd Bàn 3 + Bàn 4) thì khi nhận bàn cả hai cùng trỏ tới một đơn.
+     * Bàn đã chuyển sang đơn khác thì không bị đụng tới.
      */
+    /**
+     * Lý do không được chuyển đơn sang trạng thái $to, hoặc null nếu được.
+     * Đơn chưa có món (vd vừa nhận bàn cho khách đặt trước không đặt món) thì chưa được gửi bếp /
+     * ra món / hoàn thành — chỉ được thêm món hoặc hủy. Dùng chung cho API (app) và web /admin.
+     */
+    public function statusChangeBlockedReason(OrderStatus $to): ?string
+    {
+        $kitchenSteps = [OrderStatus::Preparing, OrderStatus::Serving, OrderStatus::Completed];
+
+        if (in_array($to, $kitchenSteps, true) && $this->items()->doesntExist()) {
+            return "Đơn {$this->code} chưa có món nào. Hãy thêm món trước khi chuyển sang \"{$to->getLabel()}\".";
+        }
+
+        return null;
+    }
+
+    /** Người đã hủy đơn (Thu ngân / Admin). */
+    public function cancelledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
+    }
+
+    /**
+     * Hủy đơn kèm lý do (nhóm chốt 13/11, cách A). Dùng chung cho API của app (Thu ngân / Admin)
+     * và nút Hủy đơn trên web /admin. Chỉ hủy được đơn chưa thanh toán, chưa hoàn thành, chưa hủy.
+     * Lưu lý do, ghi chú, người hủy, thời điểm; trả mọi bàn của đơn về trống.
+     *
+     * @throws \Illuminate\Validation\ValidationException
+     */
+    public function cancelBy(User $by, \App\Enums\CancelReason $reason, ?string $note = null): void
+    {
+        $fail = fn (string $message) => throw \Illuminate\Validation\ValidationException::withMessages(['order' => $message]);
+        $note = filled($note) ? trim($note) : null;
+
+        if ($this->isPaid()) {
+            $fail('Đơn đã thanh toán không thể hủy.');
+        }
+        if ($this->status === OrderStatus::Cancelled) {
+            $fail('Đơn này đã được hủy trước đó.');
+        }
+        if ($this->status === OrderStatus::Completed) {
+            $fail('Đơn đã hoàn thành không thể hủy.');
+        }
+        if ($reason === \App\Enums\CancelReason::Other && $note === null) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['note' => 'Chọn lý do "Khác" thì phải ghi rõ lý do.']);
+        }
+
+        $this->update([
+            'status' => OrderStatus::Cancelled,
+            'cancel_reason' => $reason,
+            'cancel_note' => $note,
+            'cancelled_by' => $by->id,
+            'cancelled_at' => now(),
+        ]);
+
+        // Giải phóng mọi bàn đang gắn với đơn này (kể cả bàn ghép khi nhận bàn đặt trước)
+        $this->releaseTableIfDone();
+    }
+
     public function releaseTableIfDone(): void
     {
         $finished = $this->status === OrderStatus::Cancelled
             || ($this->status === OrderStatus::Completed && $this->isPaid());
 
-        // Không dùng $this->table: bên trong model nó trỏ tới thuộc tính $table (tên bảng) của Eloquent.
-        $table = $this->getRelationValue('table');
-
-        if ($finished && $table && (int) $table->current_order_id === $this->id) {
-            $table->release();
+        if (! $finished) {
+            return;
         }
+
+        DiningTable::where('current_order_id', $this->id)->get()->each->release();
     }
 
     /* ---------------- Scopes ---------------- */

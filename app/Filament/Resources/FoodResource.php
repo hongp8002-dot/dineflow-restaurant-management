@@ -158,13 +158,16 @@ class FoodResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\DeleteAction::make()
+                    ->before(function ($action, \App\Models\Food $record) {
+                        // Cùng quy tắc với app Admin (DELETE /api/admin/foods/{id})
+                        if ($reason = $record->deletionBlockedReason()) {
+                            \Filament\Notifications\Notification::make()->title($reason)->danger()->send();
+                            $action->cancel();
+                        }
+                    }),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                ]),
-            ])
+            // Không xóa hàng loạt: mỗi món phải qua kiểm tra deletionBlockedReason()
             ->defaultSort('category_id');
     }
 

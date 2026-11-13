@@ -53,6 +53,23 @@ class Invoice extends Model
     }
 
     /** Hóa đơn đã thanh toán (dùng cho thống kê doanh thu). */
+    /**
+     * Doanh thu của hóa đơn (nhóm chốt 13/11, cách A) = giá trị đơn sau giảm giá
+     * = thực thu tại quầy (`total`) + tiền cọc khách đã trả lúc đặt bàn (`deposit_amount`).
+     * Dùng cho mọi báo cáo doanh thu (app, web, Excel). Báo cáo CA thì vẫn dùng `total`
+     * vì tiền cọc không đi qua ngăn kéo tiền của thu ngân.
+     */
+    public function revenueAmount(): float
+    {
+        return (float) $this->total + (float) ($this->deposit_amount ?? 0);
+    }
+
+    /** Tổng doanh thu của một danh sách hóa đơn (xem revenueAmount). */
+    public static function sumRevenue(iterable $invoices): float
+    {
+        return (float) collect($invoices)->sum(fn (self $invoice) => $invoice->revenueAmount());
+    }
+
     public function scopePaid(Builder $query): Builder
     {
         return $query->where('status', InvoiceStatus::Paid);

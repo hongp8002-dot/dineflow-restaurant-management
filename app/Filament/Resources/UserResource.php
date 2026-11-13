@@ -27,6 +27,24 @@ class UserResource extends Resource
 
     protected static ?int $navigationSort = 1;
 
+    /** Mật khẩu mặc định khi Admin tạo tài khoản nhân viên — giống POST /api/admin/users của app. */
+    public const DEFAULT_PASSWORD = User::DEFAULT_PASSWORD;
+
+    /** Vai trò Admin được tạo / đổi qua: chỉ nhân viên (giống app). Khách tự đăng ký trên app. */
+    private static function staffRoleOptions(): array
+    {
+        return [
+            UserRole::OrderStaff->value => UserRole::OrderStaff->getLabel(),
+            UserRole::Cashier->value => UserRole::Cashier->getLabel(),
+        ];
+    }
+
+    /** Tài khoản đang sửa là nhân viên (đổi vai trò được) hay Admin / Khách (chỉ xem vai trò). */
+    private static function isStaffAccount(?User $record): bool
+    {
+        return $record === null || in_array($record->role, [UserRole::OrderStaff, UserRole::Cashier], true);
+    }
+
     protected static ?string $recordTitleAttribute = 'name';
 
     public static function form(Form $form): Form
@@ -38,31 +56,44 @@ class UserResource extends Resource
                     Forms\Components\TextInput::make('name')->label('Họ tên')->required()->maxLength(255),
                     Forms\Components\TextInput::make('email')->label('Email')->email()->required()->unique(ignoreRecord: true),
                     Forms\Components\TextInput::make('phone')->label('Số điện thoại')->tel()->unique(ignoreRecord: true)->maxLength(20),
-                    Forms\Components\TextInput::make('password')
+                    // Không có ô mật khẩu (giống app): tạo mới dùng mật khẩu mặc định, người dùng tự đổi trong app.
+                    Forms\Components\Placeholder::make('default_password')
                         ->label('Mật khẩu')
-                        ->password()
-                        ->revealable()
-                        ->minLength(6)
-                        ->required(fn (string $operation) => $operation === 'create')
-                        ->dehydrated(fn (?string $state) => filled($state)) // model đã tự hash qua cast 'hashed'
-                        ->helperText(fn (string $operation) => $operation === 'edit' ? 'Để trống nếu không đổi mật khẩu.' : null),
+                        ->content('Mặc định '.self::DEFAULT_PASSWORD.' — nhân viên tự đổi sau khi đăng nhập app.')
+                        ->visibleOn('create'),
                     Forms\Components\TextInput::make('avatar_url')->label('Ảnh đại diện (URL)')->url()->columnSpanFull(),
                 ]),
             Forms\Components\Section::make('Phân quyền')
                 ->columns(2)
                 ->schema([
+                    // Giống app: chỉ tạo / đổi qua lại NV Order và Thu ngân. Tài khoản Admin, Khách hàng
+                    // hiện vai trò nhưng không đổi được (ô bị khóa nên không được lưu).
                     Forms\Components\Select::make('role')
                         ->label('Vai trò')
-                        ->options(UserRole::class)
-                        ->default(UserRole::Customer)
+                        ->options(fn (?User $record): array => self::isStaffAccount($record)
+                            ? self::staffRoleOptions()
+                            : [$record->role->value => $record->role->getLabel()])
+                        ->default(UserRole::OrderStaff->value)
+                        ->disabled(fn (?User $record): bool => ! self::isStaffAccount($record))
+                        ->rule(
+                            \Illuminate\Validation\Rule::in(array_keys(self::staffRoleOptions())),
+                            fn (?User $record): bool => self::isStaffAccount($record),
+                        )
                         ->required(),
                     Forms\Components\Select::make('status')
                         ->label('Trạng thái')
                         ->options(UserStatus::class)
-                        ->default(UserStatus::Active)
-                        ->required(),
-                    Forms\Components\TextInput::make('member_code')->label('Mã thành viên')->unique(ignoreRecord: true),
-                    Forms\Components\TextInput::make('points')->label('Điểm tích lũy')->numeric()->minValue(0)->default(0),
+                        ->required()
+                        ->visibleOn('edit'),
+                    // Mã thành viên tự sinh khi khách đăng ký; điểm chỉ cộng khi thanh toán → chỉ xem
+                    Forms\Components\TextInput::make('member_code')
+                        ->label('Mã thành viên')
+                        ->disabled()
+                        ->visible(fn (?User $record): bool => $record?->role === UserRole::Customer),
+                    Forms\Components\TextInput::make('points')
+                        ->label('Điểm tích lũy')
+                        ->disabled()
+                        ->visible(fn (?User $record): bool => $record?->role === UserRole::Customer),
                 ]),
         ]);
     }
@@ -105,9 +136,21 @@ class UserResource extends Resource
                             ->success()
                             ->send();
                     }),
+                // Đặt lại mật khẩu nhân viên về 123456 (cùng logic API app: User::resetToDefaultPassword)
+                Tables\Actions\Action::make('resetPassword')
+                    ->label('Đặt lại mật khẩu')
+                    ->icon('heroicon-o-key')
+                    ->color('warning')
+                    ->visible(fn (User $record) => in_array($record->role, [UserRole::OrderStaff, UserRole::Cashier], true))
+                    ->requiresConfirmation()
+                    ->modalHeading(fn (User $record) => "Đặt lại mật khẩu cho {$record->name}?")
+                    ->modalDescription('Mật khẩu sẽ về '.User::DEFAULT_PASSWORD.' và nhân viên bị đăng xuất khỏi mọi thiết bị. Mật khẩu cũ không xem được (lưu dạng băm).')
+                    ->action(function (User $record) {
+                        $record->resetToDefaultPassword();
+                        Notification::make()->title("Đã đặt lại mật khẩu của {$record->name} về ".User::DEFAULT_PASSWORD)->success()->send();
+                    }),
                 Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make()
-                    ->visible(fn (User $record) => $record->id !== auth()->id()),
+                // Không xóa tài khoản (giống app): người đã có đơn / hóa đơn chỉ được khóa để giữ báo cáo.
             ])
             ->defaultSort('created_at', 'desc');
     }

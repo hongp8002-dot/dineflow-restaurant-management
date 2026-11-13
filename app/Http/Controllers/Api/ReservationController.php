@@ -4,11 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\PaymentMethod;
 use App\Enums\ReservationStatus;
+use App\Enums\UserRole;
+use App\Http\Resources\OrderResource;
 use App\Http\Resources\ReservationResource;
 use App\Models\AppNotification;
 use App\Models\DiningTable;
 use App\Models\Reservation;
 use App\Services\LineItemBuilder;
+use App\Services\ReservationCheckIn;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -18,9 +21,6 @@ use Illuminate\Validation\ValidationException;
 
 class ReservationController extends ApiController
 {
-    /** Một bàn đã có lượt đặt thì không nhận lượt khác trong ±90 phút quanh giờ đó. */
-    private const WINDOW_MINUTES = 90;
-
     /** Thời gian giữ bàn chờ khách xác nhận (đặt bàn qua app gồm 3 bước). */
     public const HOLD_MINUTES = 10;
 
@@ -51,12 +51,23 @@ class ReservationController extends ApiController
         $tableIds = array_map('intval', $data['table_ids']);
         $lines = ! empty($data['pre_order_items']) ? $this->builder->build($data['pre_order_items'], 'pre_order_items') : [];
 
+        // Dọn lượt giữ bàn quá hạn / khách trễ quá 15 phút trước khi kiểm tra trùng lịch.
+        // Đặt ngoài transaction để việc dọn không bị rollback khi bên dưới báo lỗi.
+        Reservation::expireStale();
+
         $reservation = DB::transaction(function () use ($request, $data, $dateTime, $tableIds, $lines) {
-            Reservation::expireLapsedHolds();
             $tables = DiningTable::whereIn('id', $tableIds)->lockForUpdate()->get();
 
             if ($tables->pluck('area')->unique()->count() > 1) {
                 throw ValidationException::withMessages(['table_ids' => 'Các bàn ghép phải nằm trong cùng một khu vực.']);
+            }
+
+            // Cùng quy tắc với GET /tables/available: bàn khóa / ngừng phục vụ / đang có khách
+            // mà giờ đặt nằm trong 90 phút tới thì không nhận.
+            foreach ($tables as $table) {
+                if ($reason = $table->unbookableReason($dateTime)) {
+                    throw ValidationException::withMessages(['table_ids' => $reason]);
+                }
             }
 
             if ($tables->sum('capacity') < $data['guest_count']) {
@@ -64,7 +75,7 @@ class ReservationController extends ApiController
             }
 
             $taken = Reservation::blocking()
-                ->whereBetween('date_time', [$dateTime->copy()->subMinutes(self::WINDOW_MINUTES), $dateTime->copy()->addMinutes(self::WINDOW_MINUTES)])
+                ->whereBetween('date_time', [$dateTime->copy()->subMinutes(Reservation::WINDOW_MINUTES), $dateTime->copy()->addMinutes(Reservation::WINDOW_MINUTES)])
                 ->where(function ($q) use ($tableIds) {
                     foreach ($tableIds as $id) {
                         $q->orWhereJsonContains('table_ids', $id);
@@ -130,7 +141,7 @@ class ReservationController extends ApiController
             'pre_order_items' => ['nullable', 'array'],
         ]);
 
-        Reservation::expireLapsedHolds();
+        Reservation::expireStale();
         $reservation->refresh();
 
         if ($reservation->status !== ReservationStatus::Upcoming) {
@@ -181,12 +192,58 @@ class ReservationController extends ApiController
         return $this->ok(ReservationResource::make($reservation), 'Đặt bàn thành công.');
     }
 
+    /**
+     * GET /api/reservations?date=2026-11-12&status=upcoming  (NV Order, Thu ngân, Admin)
+     *
+     * Lịch đặt bàn của nhà hàng trong một ngày (mặc định hôm nay), sớm nhất trước.
+     * Không gồm lượt khách còn đang giữ bàn (chưa hoàn tất 3 bước đặt bàn).
+     */
+    public function index(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'date' => ['nullable', 'date'],
+            'status' => ['nullable', Rule::enum(ReservationStatus::class)],
+        ]);
+
+        Reservation::expireStale();
+
+        // "Hôm nay" và ngày lọc tính theo giờ của quán, giống trang Lịch đặt bàn trên web /admin
+        $date = isset($data['date'])
+            ? Carbon::parse($data['date'])->toDateString()
+            : now(config('restaurant.timezone'))->toDateString();
+
+        $reservations = Reservation::with('customer')
+            ->onRestaurantDate($date)
+            ->whereNull('hold_expires_at')
+            ->when(isset($data['status']), fn ($q) => $q->where('status', $data['status']))
+            ->orderBy('date_time')
+            ->get();
+
+        return $this->ok($this->items($reservations, ReservationResource::class));
+    }
+
+    /**
+     * POST /api/reservations/{id}/check-in  (NV Order, Thu ngân)
+     *
+     * Khách đặt trước đã tới quán: mở bàn, tạo đơn từ món đặt trước (gắn lượt đặt để trừ cọc
+     * khi thanh toán), chuyển lượt đặt sang "Đã hoàn thành". Chi tiết: App\Services\ReservationCheckIn.
+     */
+    public function checkIn(Request $request, Reservation $reservation, ReservationCheckIn $checkIn): JsonResponse
+    {
+        $order = $checkIn->handle($reservation, $request->user());
+
+        return $this->ok([
+            'reservation' => ReservationResource::make($reservation->fresh()->load('customer'))->resolve($request),
+            'order' => OrderResource::make($order->load(['table', 'customer', 'staff', 'items', 'reservation']))->resolve($request),
+        ], "Đã nhận bàn cho lượt đặt {$reservation->code}.", 201);
+    }
+
     /** GET /api/reservations/my?status= */
     public function my(Request $request): JsonResponse
     {
         $request->validate(['status' => ['nullable', Rule::enum(ReservationStatus::class)]]);
 
-        Reservation::expireLapsedHolds();
+        Reservation::expireStale();
 
         $reservations = Reservation::where('customer_id', $request->user()->id)
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->input('status')))
@@ -197,15 +254,21 @@ class ReservationController extends ApiController
     }
 
     /**
-     * PATCH /api/reservations/{id}/cancel  (chủ lượt đặt; hủy được cả lượt đang giữ bàn)
+     * PATCH /api/reservations/{id}/cancel
      *
-     * Tiền cọc KHÔNG hoàn trả (non-refundable). deposit_amount và deposit_paid_at được giữ
-     * nguyên trong DB để làm bằng chứng kiểm toán; nhân viên xem lịch sử vẫn thấy khách
-     * đã cọc bao nhiêu dù đã hủy.
+     * - Khách hủy lượt đặt của chính mình bất cứ lúc nào khi còn "Sắp tới" (kể cả lượt đang giữ bàn).
+     * - NV Order / Thu ngân / Admin hủy được mọi lượt "Sắp tới" (vd khách không đến).
+     *
+     * Tiền cọc KHÔNG hoàn trả. deposit_amount và deposit_paid_at được giữ nguyên trong DB
+     * làm bằng chứng đối soát. Bàn không cần trả lại: trạng thái "đã đặt" của bàn được tính
+     * từ các lượt đặt còn "Sắp tới", nên hủy xong bàn tự trống ở giờ đó.
      */
     public function cancel(Request $request, Reservation $reservation): JsonResponse
     {
-        if ($reservation->customer_id !== $request->user()->id) {
+        $user = $request->user();
+        $isStaff = in_array($user->role, [UserRole::OrderStaff, UserRole::Cashier, UserRole::Admin], true);
+
+        if (! $isStaff && $reservation->customer_id !== $user->id) {
             return $this->fail('Bạn không có quyền hủy lượt đặt này.', 403);
         }
 
@@ -213,16 +276,13 @@ class ReservationController extends ApiController
             return $this->fail('Chỉ hủy được lượt đặt đang ở trạng thái "Sắp tới".', 422);
         }
 
-        // Chỉ cập nhật status và xóa hold_expires_at. deposit_amount / deposit_paid_at giữ nguyên.
-        $reservation->update(['status' => ReservationStatus::Cancelled, 'hold_expires_at' => null]);
+        // Hủy + giữ cọc + báo khách: cùng hàm với nút Hủy trên web /admin
+        $reservation->cancelAndNotify();
 
-        // Gửi thông báo hủy cho khách
-        AppNotification::reservationCancelled(
-            $reservation->customer_id,
-            $reservation->id,
-            $reservation->date_time->format('H:i d/m/Y'),
-        );
+        $message = $reservation->isDepositPaid()
+            ? 'Đã hủy lượt đặt bàn. Tiền cọc '.number_format((float) $reservation->deposit_amount, 0, ',', '.').'đ không được hoàn lại.'
+            : 'Đã hủy lượt đặt bàn.';
 
-        return $this->ok(ReservationResource::make($reservation), 'Đã hủy lượt đặt bàn.');
+        return $this->ok(ReservationResource::make($reservation), $message);
     }
 }

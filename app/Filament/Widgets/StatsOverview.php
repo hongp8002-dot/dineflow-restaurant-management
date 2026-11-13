@@ -17,11 +17,20 @@ class StatsOverview extends StatsOverviewWidget
 
     protected function getStats(): array
     {
-        $paidToday = Invoice::paid()->whereDate('paid_at', today());
-        $revenueToday = (float) (clone $paidToday)->sum('total');
-        $successOrders = (clone $paidToday)->count();
+        // Ngày theo giờ của quán; doanh thu = Invoice::revenueAmount() (gồm tiền cọc), giống app Admin
+        $tz = config('restaurant.timezone');
+        $dbTz = config('app.timezone');
+        $today = now($tz)->startOfDay();
+        $paidBetween = fn ($from, $to) => Invoice::paid()
+            ->where('paid_at', '>=', $from->copy()->setTimezone($dbTz))
+            ->where('paid_at', '<', $to->copy()->setTimezone($dbTz))
+            ->get(['total', 'deposit_amount']);
 
-        $revenueYesterday = (float) Invoice::paid()->whereDate('paid_at', today()->subDay())->sum('total');
+        $paidToday = $paidBetween($today, $today->copy()->addDay());
+        $revenueToday = Invoice::sumRevenue($paidToday);
+        $successOrders = $paidToday->count();
+
+        $revenueYesterday = Invoice::sumRevenue($paidBetween($today->copy()->subDay(), $today));
 
         $servingTables = DiningTable::where('status', TableStatus::Serving)->count();
         $totalTables = DiningTable::count();

@@ -22,6 +22,19 @@ class Category extends Model
         return $this->hasMany(Food::class);
     }
 
+    /**
+     * Lý do không được xóa danh mục (null = xóa được). Còn món thì chặn, không xóa dây chuyền
+     * để tránh mất món. Dùng chung cho API của app Admin và trang Danh mục trên web /admin.
+     */
+    public function deletionBlockedReason(): ?string
+    {
+        $foodCount = $this->foods()->count();
+
+        return $foodCount > 0
+            ? "Không thể xóa danh mục \"{$this->name}\" vì còn {$foodCount} món. Hãy chuyển hoặc ẩn các món trước."
+            : null;
+    }
+
     public function scopeOrdered(Builder $query): Builder
     {
         return $query->orderBy('sort_order')->orderBy('name');

@@ -57,6 +57,34 @@ class Shift extends Model
     }
 
     /**
+     * Doanh thu trong ca theo phương thức: ['cash' => …, 'qr' => …, 'card' => …].
+     * Dùng chung cho API báo cáo ca (app) và trang Báo cáo ca trên web /admin.
+     *
+     * @return array{cash: float, qr: float, card: float}
+     */
+    public function revenueByMethod(): array
+    {
+        $invoices = $this->invoices()->get(['payment_method', 'total']);
+        $byMethod = [];
+        foreach (['cash', 'qr', 'card'] as $method) {
+            // So sánh qua ->value: cột đã cast sang enum PaymentMethod nên không so trực tiếp với chuỗi.
+            $byMethod[$method] = (float) $invoices
+                ->filter(fn ($invoice) => $invoice->payment_method?->value === $method)
+                ->sum('total');
+        }
+
+        return $byMethod;
+    }
+
+    /** Chênh lệch tiền mặt khi đóng ca = đếm được − phải có; null nếu ca chưa đóng. */
+    public function cashDifference(): ?float
+    {
+        return $this->closing_cash_counted !== null
+            ? (float) $this->closing_cash_counted - $this->expectedCash()
+            : null;
+    }
+
+    /**
      * Tổng tiền mặt phải có khi đóng ca:
      *   đầu ca + thu tiền mặt trong ca − hoàn tiền mặt (hiện chưa có hoàn tiền)
      */

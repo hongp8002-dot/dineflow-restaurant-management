@@ -16,8 +16,9 @@ class TableController extends ApiController
     /**
      * GET /api/tables?area=&status=
      *
-     * Bàn đang trống nhưng có lượt đặt bắt đầu trong khoảng (-30 phút, +60 phút) quanh hiện tại
-     * được báo là "reserved" (chỉ trong phản hồi, không đổi dữ liệu trong DB).
+     * Bàn đang trống nhưng có lượt đặt trong khoảng [bây giờ − 15 phút, bây giờ + 90 phút] được báo là
+     * "reserved" (chỉ trong phản hồi, không đổi DB). Đúng bằng khoảng NV Order bị chặn mở bàn cho
+     * khách vãng lai (DiningTable::heldReservation), nên sơ đồ bàn khớp với điều server cho phép.
      */
     public function index(Request $request): JsonResponse
     {
@@ -26,13 +27,21 @@ class TableController extends ApiController
             'status' => ['nullable', Rule::enum(TableStatus::class)],
         ]);
 
+        Reservation::expireStale();
+
+        // Lượt đặt sớm nhất đang giữ mỗi bàn (để NV Order / Thu ngân / Admin biết khách nào đặt)
         $soon = [];
         Reservation::blocking()
-            ->whereBetween('date_time', [now()->subMinutes(30), now()->addHour()])
+            ->with('customer')
+            ->whereBetween('date_time', [
+                now()->subMinutes(Reservation::GRACE_MINUTES),
+                now()->addMinutes(Reservation::WINDOW_MINUTES),
+            ])
+            ->orderBy('date_time')
             ->get()
             ->each(function (Reservation $r) use (&$soon) {
                 foreach ($r->table_ids as $id) {
-                    $soon[$id] = min($soon[$id] ?? $r->date_time, $r->date_time);
+                    $soon[$id] ??= $r; // đã sắp theo giờ: giữ lượt sớm nhất
                 }
             });
 
@@ -41,8 +50,18 @@ class TableController extends ApiController
             ->orderBy('id')
             ->get()
             ->each(function (DiningTable $table) use ($soon) {
-                $at = $soon[$table->id] ?? null;
+                $reservation = $soon[$table->id] ?? null;
+                $at = $reservation?->date_time;
                 $table->setAttribute('next_reservation_at', $at?->toIso8601String());
+                $table->setAttribute('next_reservation', $reservation ? [
+                    'id' => $reservation->id,
+                    'code' => $reservation->code,
+                    'date_time' => $reservation->date_time->toIso8601String(),
+                    'guest_count' => $reservation->guest_count,
+                    'customer_name' => $reservation->customer?->name,
+                    'customer_phone' => $reservation->customer?->phone,
+                    'deposit_amount' => $reservation->isDepositPaid() ? (float) $reservation->deposit_amount : null,
+                ] : null);
                 $table->setAttribute('effective_status', ($table->isEmpty() && $at) ? TableStatus::Reserved->value : $table->status->value);
             })
             ->when($request->filled('status'), fn ($c) => $c->filter(fn ($t) => $t->effective_status === $request->input('status')))
@@ -58,8 +77,10 @@ class TableController extends ApiController
      *
      * Trả về tất cả bàn kèm field `available: true/false` cho thời điểm đặt bàn cụ thể.
      * Bàn bị coi là "không trống" nếu:
-     *  - Đang phục vụ hoặc bị khoá ngay lúc này, HOẶC
-     *  - Có lượt đặt bàn trong khoảng (datetime - 90 phút, datetime + 90 phút).
+     *  - Không nhận đặt theo DiningTable::isBookableAt (ngừng phục vụ, đang khóa, hoặc đang có
+     *    khách và giờ đặt nằm trong 90 phút tới), HOẶC
+     *  - Có lượt đặt bàn trong khoảng ±Reservation::WINDOW_MINUTES quanh giờ khách chọn.
+     * ReservationController::store() dùng đúng hai điều kiện này nên kết quả luôn khớp.
      *
      * Dùng bởi màn hình Đặt bàn của khách: sau khi chọn ngày/giờ, app gọi API này
      * để hiển thị bàn trống THẬT SỰ theo thời điểm đó, không phải trạng thái hiện tại.
@@ -71,13 +92,13 @@ class TableController extends ApiController
         ]);
 
         // Dọn các lượt giữ bàn đã quá hạn trước khi kiểm tra xung đột.
-        Reservation::expireLapsedHolds();
+        Reservation::expireStale();
 
         // Đổi về múi giờ của quán giống ReservationController::store(), nếu không giờ UTC
         // và giờ địa phương bị so lệch 7 tiếng → bàn hiện "Trống" nhưng đặt lại bị từ chối.
         $dt          = Carbon::parse($request->input('datetime'))->setTimezone(config('app.timezone'));
-        $windowStart = $dt->copy()->subMinutes(90);
-        $windowEnd   = $dt->copy()->addMinutes(90);
+        $windowStart = $dt->copy()->subMinutes(Reservation::WINDOW_MINUTES);
+        $windowEnd   = $dt->copy()->addMinutes(Reservation::WINDOW_MINUTES);
 
         // Các bàn đã có người đặt trong cửa sổ 90 phút quanh thời điểm khách chọn.
         $bookedIds = Reservation::blocking()
@@ -90,13 +111,9 @@ class TableController extends ApiController
 
         $tables = DiningTable::orderBy('id')
             ->get()
-            ->map(function (DiningTable $table) use ($bookedIds) {
-                // Bàn có available = true khi: đang hoạt động, không bị khoá,
-                // không phải đang phục vụ ngay bây giờ, và không có ai đặt trước.
-                $available = $table->is_active
-                    && !$table->is_locked
-                    && $table->isEmpty()
-                    && !in_array($table->id, $bookedIds);
+            ->map(function (DiningTable $table) use ($bookedIds, $dt) {
+                $available = $table->isBookableAt($dt)
+                    && ! in_array($table->id, $bookedIds);
 
                 return array_merge(
                     (new TableResource($table))->resolve(),

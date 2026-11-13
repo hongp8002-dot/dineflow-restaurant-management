@@ -115,6 +115,10 @@ class FoodAdminController extends ApiController
      */
     public function destroy(Food $food): JsonResponse
     {
+        if ($reason = $food->deletionBlockedReason()) {
+            return $this->fail($reason, 422);
+        }
+
         $name = $food->name;
 
         // Xóa các options của món trước (nếu không có cascade ở DB)

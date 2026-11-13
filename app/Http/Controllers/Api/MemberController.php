@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\UserRole;
 use App\Models\User;
+use App\Services\LoyaltyRules;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -30,12 +31,8 @@ class MemberController extends ApiController
 
     private function formatMember(User $user): array
     {
-        // Xác định hạng thành viên theo điểm (cùng logic với LoyaltyRules phía Flutter)
-        $tier = match (true) {
-            $user->points >= 1500 => 'platinum',
-            $user->points >= 500  => 'gold',
-            default               => 'silver',
-        };
+        // Hạng theo điểm, ngưỡng lấy từ config/loyalty.php (app Flutter tải cùng quy tắc qua /api/settings)
+        $tier = LoyaltyRules::tierFor((int) $user->points);
 
         return [
             'id'          => $user->id,

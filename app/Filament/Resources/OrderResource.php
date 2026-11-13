@@ -64,14 +64,35 @@ class OrderResource extends Resource
             Forms\Components\Section::make('Xử lý')
                 ->columns(2)
                 ->schema([
+                    // Không chọn "Đã hủy" ở đây: hủy phải qua nút Hủy đơn (bắt buộc lý do).
+                    // Đơn đã hủy thì khóa ô trạng thái.
                     Forms\Components\Select::make('status')
                         ->label('Trạng thái bếp / phục vụ')
-                        ->options(OrderStatus::class)
+                        ->options(fn (?Order $record) => $record?->status === OrderStatus::Cancelled
+                            ? [OrderStatus::Cancelled->value => OrderStatus::Cancelled->getLabel()]
+                            : collect(OrderStatus::cases())
+                                ->reject(fn (OrderStatus $s) => $s === OrderStatus::Cancelled)
+                                ->mapWithKeys(fn (OrderStatus $s) => [$s->value => $s->getLabel()])
+                                ->all())
+                        ->disabled(fn (?Order $record) => $record?->status === OrderStatus::Cancelled)
+                        // Kiểm tra cả phía server: không lưu "Đã hủy" qua form (phải dùng nút Hủy đơn)
+                        ->notIn([OrderStatus::Cancelled->value], fn (?Order $record) => $record?->status !== OrderStatus::Cancelled)
                         ->required(),
+                    // Chỉ xem: thanh toán phải qua Thu ngân (tạo hóa đơn, gắn ca, cộng điểm)
                     Forms\Components\Select::make('payment_status')
                         ->label('Thanh toán')
                         ->options(PaymentStatus::class)
-                        ->required(),
+                        ->disabled(),
+                    Forms\Components\Placeholder::make('cancel_info')
+                        ->label('Thông tin hủy')
+                        ->visible(fn (?Order $record) => $record?->status === OrderStatus::Cancelled)
+                        ->content(fn (?Order $record) => $record?->cancel_reason
+                            ? $record->cancel_reason->getLabel()
+                                .($record->cancel_note ? ' — '.$record->cancel_note : '')
+                                .' · '.($record->cancelledBy?->name ?? '?')
+                                .' · '.$record->cancelled_at?->format('H:i d/m/Y')
+                            : 'Hủy trước khi có chức năng ghi lý do')
+                        ->columnSpanFull(),
                     Forms\Components\Textarea::make('note')->label('Ghi chú')->rows(2)->columnSpanFull(),
                 ]),
         ]);
@@ -80,7 +101,7 @@ class OrderResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn ($query) => $query->with(['table', 'customer', 'staff']))
+            ->modifyQueryUsing(fn ($query) => $query->with(['table', 'customer', 'staff', 'cancelledBy']))
             ->columns([
                 Tables\Columns\TextColumn::make('code')
                     ->label('Mã đơn')
@@ -110,6 +131,17 @@ class OrderResource extends Resource
                     ->label('Tổng tiền')
                     ->money('VND')
                     ->sortable(),
+                // Đơn đã hủy: lý do · người hủy (nhóm chốt 13/11, cách A)
+                Tables\Columns\TextColumn::make('cancel_reason')
+                    ->label('Lý do hủy')
+                    ->formatStateUsing(fn ($state, Order $record) => $state?->getLabel()
+                        .($record->cancel_note ? ': '.$record->cancel_note : ''))
+                    ->description(fn (Order $record) => $record->cancelledBy
+                        ? $record->cancelledBy->name.' · '.$record->cancelled_at?->format('H:i d/m')
+                        : null)
+                    ->placeholder('—')
+                    ->wrap()
+                    ->toggleable(),
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Tạo lúc')
                     ->dateTime('H:i d/m/Y')
@@ -124,6 +156,9 @@ class OrderResource extends Resource
                 Tables\Filters\SelectFilter::make('payment_status')
                     ->label('Thanh toán')
                     ->options(PaymentStatus::class),
+                Tables\Filters\SelectFilter::make('cancel_reason')
+                    ->label('Lý do hủy')
+                    ->options(\App\Enums\CancelReason::class),
                 Tables\Filters\Filter::make('today')
                     ->label('Hôm nay')
                     ->query(fn ($query) => $query->whereDate('created_at', today())),
@@ -132,7 +167,29 @@ class OrderResource extends Resource
                 self::statusAction('preparing', 'Bếp nhận', 'heroicon-o-fire', 'warning', [OrderStatus::Placed], OrderStatus::Preparing),
                 self::statusAction('serving', 'Ra món', 'heroicon-o-truck', 'info', [OrderStatus::Preparing], OrderStatus::Serving),
                 self::statusAction('completed', 'Hoàn thành', 'heroicon-o-check-circle', 'success', [OrderStatus::Serving], OrderStatus::Completed),
-                self::statusAction('cancelled', 'Hủy đơn', 'heroicon-o-x-circle', 'danger', [OrderStatus::Placed, OrderStatus::Preparing, OrderStatus::Serving], OrderStatus::Cancelled, confirm: true),
+                // Hủy đơn: bắt buộc lý do, cùng quy tắc với app (Order::cancelBy)
+                Tables\Actions\Action::make('cancelled')
+                    ->label('Hủy đơn')
+                    ->icon('heroicon-o-x-circle')
+                    ->color('danger')
+                    ->visible(fn (Order $record) => $record->status->isOpen() && ! $record->isPaid())
+                    ->modalHeading(fn (Order $record) => "Hủy đơn {$record->code}?")
+                    ->form([
+                        Forms\Components\Radio::make('reason')
+                            ->label('Lý do hủy')
+                            ->options(\App\Enums\CancelReason::class)
+                            ->required()
+                            ->live(),
+                        Forms\Components\Textarea::make('note')
+                            ->label('Ghi chú')
+                            ->rows(2)
+                            ->maxLength(255)
+                            ->required(fn (Forms\Get $get) => $get('reason') === \App\Enums\CancelReason::Other->value),
+                    ])
+                    ->action(function (Order $record, array $data) {
+                        $record->cancelBy(auth()->user(), \App\Enums\CancelReason::from($data['reason']), $data['note'] ?? null);
+                        Notification::make()->title("Đã hủy đơn {$record->code}")->success()->send();
+                    }),
                 Tables\Actions\EditAction::make()->label('Chi tiết')->icon('heroicon-o-eye'),
             ])
             ->defaultSort('created_at', 'desc')
@@ -153,6 +210,13 @@ class OrderResource extends Resource
             ->visible(fn (Order $record) => in_array($record->status, $from, true))
             ->requiresConfirmation($confirm)
             ->action(function (Order $record) use ($to) {
+                // Cùng quy tắc với API: đơn chưa có món thì chưa gửi bếp / ra món / hoàn thành
+                if ($reason = $record->statusChangeBlockedReason($to)) {
+                    Notification::make()->title($reason)->danger()->send();
+
+                    return;
+                }
+
                 $record->update(['status' => $to]);
                 $record->releaseTableIfDone();
 
