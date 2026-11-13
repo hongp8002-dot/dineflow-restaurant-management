@@ -42,12 +42,23 @@ class OrderStaffRepository {
 
   // ── Đơn hàng ────────────────────────────────────────────────────────────────
 
-  /// Huỷ đơn [orderId].
+  /// Lý do hủy đơn (khớp App\\Enums\\CancelReason ở backend). "Khác" thì bắt buộc ghi chú.
+  static const cancelReasons = {
+    'wrong_entry': 'Nhập nhầm',
+    'customer_left': 'Khách bỏ về',
+    'out_of_stock': 'Hết món',
+    'other': 'Khác',
+  };
+
+  /// Huỷ đơn [orderId] kèm lý do [reason] (khóa trong [cancelReasons]) và ghi chú [note].
   ///
-  /// Chỉ Thu ngân mới có quyền huỷ, và chỉ huỷ được đơn chưa thanh toán.
-  /// Server trả 403 nếu sai vai trò, 422 nếu đơn đã thanh toán.
-  Future<void> cancelOrder(String orderId) async {
-    await ApiClient.instance.patch('/orders/$orderId/cancel');
+  /// Chỉ Thu ngân / Admin mới có quyền huỷ, và chỉ huỷ được đơn chưa thanh toán.
+  /// Server lưu lý do, người hủy, thời điểm; trả 403 nếu sai vai trò, 422 nếu thiếu lý do / đơn đã thanh toán.
+  Future<void> cancelOrder(String orderId, {required String reason, String? note}) async {
+    await ApiClient.instance.patch('/orders/$orderId/cancel', body: {
+      'reason': reason,
+      if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+    });
   }
 
   // ── Khuyến mãi ──────────────────────────────────────────────────────────────

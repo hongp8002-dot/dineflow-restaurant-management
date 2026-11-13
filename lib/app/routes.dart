@@ -4,12 +4,15 @@ import '../models/invoice.dart';
 import '../models/reservation.dart';
 import '../models/user.dart';
 import '../screens/admin/account_management_screen.dart';
+import '../screens/admin/cancelled_orders_screen.dart';
 import '../screens/admin/admin_shell.dart';
 import '../screens/admin/menu_management_screen.dart';
 import '../screens/admin/promotion_management_screen.dart';
 import '../screens/admin/revenue_report_screen.dart';
+import '../screens/admin/shift_report_screen.dart';
 import '../screens/admin/table_area_management_screen.dart';
 import '../screens/auth/login_screen.dart';
+import '../screens/auth/forgot_password_screen.dart';
 import '../screens/auth/register_screen.dart';
 import '../screens/cashier/cashier_profile_screen.dart';
 import '../screens/cashier/cashier_settings_screen.dart';
@@ -46,6 +49,7 @@ import '../screens/order_staff/staff_profile_screen.dart';
 import '../screens/order_staff/staff_settings_screen.dart';
 import '../screens/order_staff/table_detail_screen.dart';
 import '../screens/order_staff/transfer_table_screen.dart';
+import '../screens/shared/reservation_list_screen.dart';
 
 /// Tên các route dùng trong toàn bộ ứng dụng.
 /// Phần định tuyến (onGenerateRoute) được cấu hình ở cuối file này.
@@ -55,6 +59,7 @@ class AppRoutes {
   // Auth
   static const login = '/login';
   static const register = '/register';
+  static const forgotPassword = '/forgot-password';
 
   // Customer
   static const customerHome = '/customer/home';
@@ -86,6 +91,9 @@ class AppRoutes {
   static const staffProfile = '/order-staff/profile';
   static const staffSettings = '/order-staff/settings';
 
+  // Dùng chung cho NV Order, Thu ngân, Admin
+  static const reservationList = '/staff/reservations';
+
   // Cashier
   static const cashierDashboard = '/cashier/dashboard';
   static const cashierPendingPayment = '/cashier/pending-payment';
@@ -104,6 +112,8 @@ class AppRoutes {
   static const adminTables = '/admin/tables';
   static const adminPromotions = '/admin/promotions';
   static const adminReports = '/admin/reports';
+  static const adminShifts = '/admin/shifts';
+  static const adminCancelledOrders = '/admin/cancelled-orders';
 
   /// Màn hình chính của từng vai trò sau khi đăng nhập.
   static String homeFor(UserRole role) => switch (role) {
@@ -125,6 +135,9 @@ class AppRoutes {
         break;
       case register:
         page = const RegisterScreen();
+        break;
+      case forgotPassword:
+        page = const ForgotPasswordScreen();
         break;
 
       // Customer
@@ -209,6 +222,9 @@ class AppRoutes {
       case staffSettings:
         page = const StaffSettingsScreen();
         break;
+      case reservationList:
+        page = const ReservationListScreen();
+        break;
 
       // Cashier
       case cashierDashboard:
@@ -257,6 +273,12 @@ class AppRoutes {
         break;
       case adminReports:
         page = const RevenueReportScreen();
+        break;
+      case adminShifts:
+        page = const ShiftReportScreen();
+        break;
+      case adminCancelledOrders:
+        page = const CancelledOrdersScreen();
         break;
 
       default:

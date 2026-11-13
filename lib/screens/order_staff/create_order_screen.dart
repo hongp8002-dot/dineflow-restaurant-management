@@ -8,6 +8,7 @@ import '../../data/cart_store.dart';
 import '../../data/mock_data.dart';
 import '../../data/order_repository.dart';
 import '../../models/food.dart';
+import '../../models/food_option.dart';
 import '../../models/order_item.dart';
 import '../../models/table_model.dart';
 import '../../theme/app_colors.dart';
@@ -19,10 +20,15 @@ import '../../widgets/app_search_bar.dart';
 import '../../widgets/category_chip.dart';
 import '../../widgets/quantity_stepper.dart';
 
-/// Màn hình Order món tại bàn: chọn món, số lượng, ghi chú, gửi order.
+/// Màn hình Order món tại bàn: chọn món, size/topping, số lượng, ghi chú, gửi order.
 ///
 /// Theo mockup "Order món": số lượng chỉnh ngay trên từng dòng món (nút + khi
 /// chưa chọn, bộ − số + khi đã chọn), tổng tiền và nút Gửi Order ở thanh dưới.
+///
+/// Món có size/topping (nhóm chốt 13/11, cùng quy tắc màn chi tiết món của khách): bấm + mở
+/// bảng chọn, size mặc định là size đầu tiên, topping chọn thêm tùy ý. Mỗi tổ hợp tùy chọn
+/// là một dòng riêng (vd Trà sữa M và Trà sữa L), mỗi dòng có số lượng và ghi chú riêng.
+/// Giá cuối cùng do server tính từ option_ids.
 class CreateOrderScreen extends StatefulWidget {
   final String? tableId;
   const CreateOrderScreen({super.key, this.tableId});
@@ -69,7 +75,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     }).toList();
   }
 
-  /// Dòng của món trong order đang tạo. Mỗi món chỉ có một dòng: chạm lại
+  /// Dòng của món KHÔNG có tùy chọn trong order đang tạo. Mỗi món chỉ có một dòng: chạm lại
   /// vào món đã có thì tăng số lượng của chính dòng đó, không đẻ dòng trùng.
   OrderItem? _lineOf(Food food) {
     for (final item in _draft.items) {
@@ -78,18 +84,52 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     return null;
   }
 
+  /// Mọi dòng của một món (món có size/topping có thể có nhiều dòng, mỗi tổ hợp một dòng).
+  List<OrderItem> _linesOf(Food food) => _draft.items.where((i) => i.foodId == food.id).toList();
+
+  /// Bấm + / chạm vào món: món có tùy chọn thì mở bảng chọn, không có thì thêm 1 phần.
   void _addFood(Food food) {
+    if (food.options.isNotEmpty) {
+      _pickOptions(food);
+      return;
+    }
     final existing = _lineOf(food);
     if (existing != null) {
       _draft.updateQuantity(existing.id, existing.quantity + 1);
       return;
     }
+    _addLine(food, const []);
+  }
+
+  Future<void> _pickOptions(Food food) async {
+    final options = await showModalBottomSheet<List<FoodOption>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _OptionSheet(food: food),
+    );
+    if (options == null || !mounted) return;
+
+    // Cùng tổ hợp tùy chọn và chưa có ghi chú → cộng vào dòng sẵn có thay vì tạo dòng trùng.
+    String key(Iterable<FoodOption> list) => (list.map((o) => o.id).toList()..sort()).join(',');
+    final wanted = key(options);
+    for (final line in _linesOf(food)) {
+      if (key(line.selectedOptions) == wanted && line.note.isEmpty) {
+        _draft.updateQuantity(line.id, line.quantity + 1);
+        return;
+      }
+    }
+    _addLine(food, options);
+  }
+
+  void _addLine(Food food, List<FoodOption> options) {
     _draft.addItem(OrderItem(
-      id: '${food.id}-${DateTime.now().millisecondsSinceEpoch}',
+      id: '${food.id}-${DateTime.now().microsecondsSinceEpoch}',
       foodId: food.id,
       foodName: food.name,
       price: food.price,
       quantity: 1,
+      selectedOptions: options,
     ));
   }
 
@@ -272,13 +312,21 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                 FadeSlideIn.staggered(
                   index: i,
                   offsetY: 8,
-                  child: _FoodRow(
-                    food: foods[i],
-                    line: _lineOf(foods[i]),
-                    onAdd: () => _addFood(foods[i]),
-                    onQuantityChanged: (q) => _setQuantity(foods[i], q),
-                    onEditNote: _editNote,
-                  ),
+                  child: foods[i].options.isEmpty
+                      ? _FoodRow(
+                          food: foods[i],
+                          line: _lineOf(foods[i]),
+                          onAdd: () => _addFood(foods[i]),
+                          onQuantityChanged: (q) => _setQuantity(foods[i], q),
+                          onEditNote: _editNote,
+                        )
+                      : _OptionFoodRow(
+                          food: foods[i],
+                          lines: _linesOf(foods[i]),
+                          onAdd: () => _addFood(foods[i]),
+                          onQuantityChanged: (line, q) => _draft.updateQuantity(line.id, q),
+                          onEditNote: _editNote,
+                        ),
                 ),
               ],
             ],
@@ -520,6 +568,209 @@ class _NoteLink extends StatelessWidget {
                   decoration: hasNote ? null : TextDecoration.underline,
                   decorationColor: AppColors.textSecondary,
                 ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Dòng món CÓ size/topping: tên + giá gốc và nút + (mở bảng chọn); bên dưới là từng dòng đã chọn
+/// (vd "Size L, Trân châu · 45.000đ") với bộ − số + và ghi chú riêng.
+class _OptionFoodRow extends StatelessWidget {
+  final Food food;
+  final List<OrderItem> lines;
+  final VoidCallback onAdd;
+  final void Function(OrderItem line, int quantity) onQuantityChanged;
+  final ValueChanged<OrderItem> onEditNote;
+
+  const _OptionFoodRow({
+    required this.food,
+    required this.lines,
+    required this.onAdd,
+    required this.onQuantityChanged,
+    required this.onEditNote,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          PressScale(
+            onTap: onAdd,
+            scale: 0.98,
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(food.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.textPrimary)),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${AppFormatters.currency(food.price)} · ${[
+                          if (food.sizes.isNotEmpty) 'chọn size',
+                          if (food.toppings.isNotEmpty) 'topping',
+                        ].join(', ')}',
+                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500, color: AppColors.textSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(color: AppColors.primaryLight, borderRadius: BorderRadius.circular(12)),
+                  child: Icon(Icons.add_rounded, size: 22, color: AppColors.textPrimary),
+                ),
+              ],
+            ),
+          ),
+          for (final line in lines)
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+              decoration: BoxDecoration(color: AppColors.surfaceAlt, borderRadius: BorderRadius.circular(14)),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          line.optionsLabel.isEmpty ? 'Không tùy chọn' : line.optionsLabel,
+                          style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                        ),
+                        Text(AppFormatters.currency(line.unitPrice),
+                            style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+                        _NoteLink(note: line.note, onTap: () => onEditNote(line)),
+                      ],
+                    ),
+                  ),
+                  QuantityStepper(
+                    value: line.quantity,
+                    min: 0,
+                    onChanged: (q) => onQuantityChanged(line, q),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Bảng chọn size/topping cho một món. Cùng quy tắc với màn chi tiết món của khách:
+/// size mặc định là size đầu tiên (chỉ chọn một), topping chọn thêm tùy ý.
+/// Trả về danh sách tùy chọn đã chọn; đóng bảng thì trả về null.
+class _OptionSheet extends StatefulWidget {
+  final Food food;
+
+  const _OptionSheet({required this.food});
+
+  @override
+  State<_OptionSheet> createState() => _OptionSheetState();
+}
+
+class _OptionSheetState extends State<_OptionSheet> {
+  late FoodOption? _size = widget.food.sizes.isNotEmpty ? widget.food.sizes.first : null;
+  final Set<String> _toppingIds = {};
+
+  List<FoodOption> get _selected => [
+        if (_size != null) _size!,
+        ...widget.food.toppings.where((t) => _toppingIds.contains(t.id)),
+      ];
+
+  double get _unitPrice => widget.food.price + _selected.fold(0.0, (sum, o) => sum + o.extraPrice);
+
+  @override
+  Widget build(BuildContext context) {
+    final food = widget.food;
+    final label = TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppColors.textPrimary);
+
+    return Container(
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
+              child: Text(food.name,
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppColors.textPrimary)),
+            ),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                children: [
+                  if (food.sizes.isNotEmpty) ...[
+                    Text('Chọn size', style: label),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final size in food.sizes)
+                          CategoryChip(
+                            label: size.extraPrice > 0
+                                ? '${size.name} (+${AppFormatters.currency(size.extraPrice)})'
+                                : size.name,
+                            selected: _size?.id == size.id,
+                            onTap: () => setState(() => _size = size),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  if (food.toppings.isNotEmpty) ...[
+                    Text('Chọn topping', style: label),
+                    const SizedBox(height: 4),
+                    for (final topping in food.toppings)
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        value: _toppingIds.contains(topping.id),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        activeColor: AppColors.primary,
+                        checkColor: AppColors.textOnPrimary,
+                        title: Text(topping.name, style: const TextStyle(fontSize: 14)),
+                        secondary: Text('+${AppFormatters.currency(topping.extraPrice)}',
+                            style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                        onChanged: (v) => setState(() {
+                          if (v == true) {
+                            _toppingIds.add(topping.id);
+                          } else {
+                            _toppingIds.remove(topping.id);
+                          }
+                        }),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+              child: AppButton(
+                label: 'Thêm vào order · ${AppFormatters.currency(_unitPrice)}',
+                onPressed: () => Navigator.of(context).pop(_selected),
               ),
             ),
           ],

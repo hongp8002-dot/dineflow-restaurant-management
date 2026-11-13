@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/session/session_store.dart';
+import '../../data/auth_repository.dart';
 import '../../data/loyalty_rules.dart';
 import '../../models/customer.dart';
 import '../../theme/app_colors.dart';
@@ -11,11 +12,26 @@ import '../../widgets/app_page_header.dart';
 
 /// Màn hình QR thành viên: thông tin thành viên, điểm thưởng và mã QR thật
 /// (chứa mã thẻ, vd "DF-000123") để thu ngân quét khi thanh toán.
-class MemberQrScreen extends StatelessWidget {
+class MemberQrScreen extends StatefulWidget {
   const MemberQrScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  State<MemberQrScreen> createState() => _MemberQrScreenState();
+}
+
+class _MemberQrScreenState extends State<MemberQrScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Điểm có thể vừa được cộng sau khi thanh toán → tải lại hồ sơ khi mở thẻ thành viên.
+    AuthRepository.instance.refreshProfile();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      ListenableBuilder(listenable: SessionStore.instance, builder: (context, _) => _buildContent(context));
+
+  Widget _buildContent(BuildContext context) {
     final user = SessionStore.instance.user;
 
     // Nếu chưa đăng nhập (không bao giờ xảy ra khi đã vào app) → màn loading

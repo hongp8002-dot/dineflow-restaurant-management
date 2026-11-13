@@ -48,6 +48,12 @@ class Order {
   /// 0.0 = không có cọc.
   final double depositAmount;
 
+  /// Thông tin hủy (chỉ có khi đơn đã hủy): lý do, ghi chú, người hủy, thời điểm.
+  final String? cancelReasonLabel;
+  final String? cancelNote;
+  final String? cancelledByName;
+  final DateTime? cancelledAt;
+
   const Order({
     required this.id,
     this.code,
@@ -62,6 +68,10 @@ class Order {
     this.note = '',
     this.reservationId,
     this.depositAmount = 0.0,
+    this.cancelReasonLabel,
+    this.cancelNote,
+    this.cancelledByName,
+    this.cancelledAt,
   });
 
   /// Đọc một đơn do API trả về (khóa `snake_case`).
@@ -86,6 +96,10 @@ class Order {
       note: json['note'] as String? ?? '',
       reservationId: json['reservation_id']?.toString(),
       depositAmount: (json['deposit_amount'] as num?)?.toDouble() ?? 0.0,
+      cancelReasonLabel: json['cancel_reason_label'] as String?,
+      cancelNote: json['cancel_note'] as String?,
+      cancelledByName: json['cancelled_by_name'] as String?,
+      cancelledAt: json['cancelled_at'] == null ? null : DateTime.parse(json['cancelled_at'] as String).toLocal(),
     );
   }
 

@@ -149,7 +149,7 @@ class _FakeInvoices extends InvoiceRepository {
 
   @override
   Future<Invoice> pay(String orderId,
-          {required PaymentMethod method, String? promotionCode, int pointsUsed = 0}) =>
+          {required PaymentMethod method, String? promotionCode, String? memberCode, int pointsUsed = 0}) =>
       onPay!(orderId, method, promotionCode, pointsUsed);
 }
 

@@ -16,6 +16,40 @@ extension TableStatusX on TableStatus {
   }
 }
 
+/// Lượt đặt đang giữ bàn (server gửi kèm ở GET /tables khi bàn "Đặt trước"),
+/// để NV Order / Thu ngân / Admin biết bàn này là của khách nào.
+class TableReservationInfo {
+  final String id;
+  final String code;
+  final DateTime dateTime;
+  final int guestCount;
+  final String? customerName;
+  final String? customerPhone;
+
+  /// Tiền cọc khách đã trả; null = không cọc.
+  final double? depositAmount;
+
+  const TableReservationInfo({
+    required this.id,
+    required this.code,
+    required this.dateTime,
+    required this.guestCount,
+    this.customerName,
+    this.customerPhone,
+    this.depositAmount,
+  });
+
+  factory TableReservationInfo.fromApiJson(Map<String, dynamic> json) => TableReservationInfo(
+        id: json['id'].toString(),
+        code: json['code'] as String,
+        dateTime: DateTime.parse(json['date_time'] as String).toLocal(),
+        guestCount: (json['guest_count'] as num).toInt(),
+        customerName: json['customer_name'] as String?,
+        customerPhone: json['customer_phone'] as String?,
+        depositAmount: (json['deposit_amount'] as num?)?.toDouble(),
+      );
+}
+
 /// Bàn ăn trong nhà hàng.
 class TableModel {
   final String id;
@@ -40,6 +74,9 @@ class TableModel {
   /// - false → đã có người đặt hoặc đang phục vụ tại thời điểm đó.
   final bool? available;
 
+  /// Lượt đặt đang giữ bàn (chỉ có khi bàn "Đặt trước", dữ liệu từ /tables).
+  final TableReservationInfo? nextReservation;
+
   const TableModel({
     required this.id,
     required this.number,
@@ -51,6 +88,7 @@ class TableModel {
     this.isLocked = false,
     this.isActive = true,
     this.available,
+    this.nextReservation,
   });
 
   /// Đọc một bàn do API `/tables` trả về.
@@ -75,6 +113,9 @@ class TableModel {
       isLocked: json['is_locked'] as bool? ?? false,
       isActive: json['is_active'] as bool? ?? true,
       // available không có trong /tables — dùng null để phân biệt
+      nextReservation: json['next_reservation'] is Map<String, dynamic>
+          ? TableReservationInfo.fromApiJson(json['next_reservation'] as Map<String, dynamic>)
+          : null,
     );
   }
 
@@ -90,10 +131,13 @@ class TableModel {
   factory TableModel.fromAvailabilityJson(Map<String, dynamic> json) {
     final base = TableModel.fromApiJson(json);
     final available = json['available'] as bool? ?? false;
-    // Bàn hiện trống nhưng đã có người đặt lúc khách chọn → hiện "Đã đặt trước"
-    final effectiveStatus = (!available && base.status == TableStatus.empty)
-        ? TableStatus.reserved
-        : base.status;
+    // Trạng thái hiển thị theo GIỜ KHÁCH CHỌN, không theo lúc này:
+    // - đặt được → "Trống" (kể cả bàn đang có khách nhưng giờ chọn còn xa, vd ngày mai);
+    // - không đặt được mà bàn đang trống → "Đã đặt trước" (có người đặt giờ đó);
+    // - còn lại (đang phục vụ trong 90 phút tới, khoá...) giữ nguyên.
+    final effectiveStatus = available
+        ? TableStatus.empty
+        : (base.status == TableStatus.empty ? TableStatus.reserved : base.status);
     return TableModel(
       id: base.id,
       number: base.number,
@@ -105,6 +149,7 @@ class TableModel {
       isLocked: base.isLocked,
       isActive: base.isActive,
       available: available,
+      nextReservation: base.nextReservation,
     );
   }
 
@@ -128,6 +173,7 @@ class TableModel {
       isLocked: isLocked ?? this.isLocked,
       isActive: isActive ?? this.isActive,
       available: available ?? this.available,
+      nextReservation: nextReservation,
     );
   }
 }

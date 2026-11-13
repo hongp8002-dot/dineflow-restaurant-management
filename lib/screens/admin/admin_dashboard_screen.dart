@@ -232,6 +232,18 @@ class AdminDashboardScreen extends StatelessWidget {
                       label: 'Báo cáo',
                       imageUrl: 'https://cdn-icons-png.flaticon.com/512/2920/2920277.png',
                       onTap: () => Navigator.of(context).pushNamed(AppRoutes.adminReports)),
+                  _QuickManage(
+                      icon: Icons.badge_outlined,
+                      label: 'Báo cáo ca',
+                      onTap: () => Navigator.of(context).pushNamed(AppRoutes.adminShifts)),
+                  _QuickManage(
+                      icon: Icons.event_note_rounded,
+                      label: 'Lịch đặt bàn',
+                      onTap: () => Navigator.of(context).pushNamed(AppRoutes.reservationList)),
+                  _QuickManage(
+                      icon: Icons.cancel_outlined,
+                      label: 'Đơn đã hủy',
+                      onTap: () => Navigator.of(context).pushNamed(AppRoutes.adminCancelledOrders)),
                 ]
                     .asMap()
                     .entries

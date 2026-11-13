@@ -34,6 +34,11 @@ class TableManagementScreen extends StatelessWidget {
                   background: AppColors.primary,
                 ),
                 showBack: false,
+                trailing: IconButton(
+                  tooltip: 'Lịch đặt bàn',
+                  onPressed: () => Navigator.of(context).pushNamed(AppRoutes.reservationList),
+                  icon: Icon(Icons.event_note_rounded, color: AppColors.textPrimary),
+                ),
               ),
               Expanded(
                 child: RefreshIndicator(

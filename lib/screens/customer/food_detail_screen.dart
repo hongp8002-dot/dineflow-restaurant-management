@@ -204,24 +204,8 @@ class _FoodDetailScreenState extends State<FoodDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(child: Text(_food.name, style: Theme.of(context).textTheme.headlineSmall)),
-            const SizedBox(width: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: AppColors.primaryLight,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.star_rounded, color: AppColors.primaryDark, size: 16),
-                  const SizedBox(width: 3),
-                  Text('${_food.rating}',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w800, fontSize: 12.5, color: AppColors.textPrimary)),
-                ],
-              ),
-            ),
+            // Đã gỡ huy hiệu số sao: đó là con số cố định từ dữ liệu mẫu, chưa có chức năng
+            // đánh giá thật. Khi nhóm làm đánh giá thì hiện lại sao trung bình ở đây.
           ],
         ),
         const SizedBox(height: 8),

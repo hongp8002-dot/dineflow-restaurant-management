@@ -285,6 +285,8 @@ class MockData {
       .where((o) => o.paymentStatus == PaymentStatus.unpaid || o.paymentStatus == PaymentStatus.pending)
       .where((o) => o.status != OrderStatus.cancelled)
       .where((o) => o.tableNumber != null)
+      // Đơn chưa có món (bàn vừa mở / vừa nhận bàn, chưa order) thì chưa có gì để thu
+      .where((o) => o.items.isNotEmpty)
       .toList();
 
   // ------------------------- CUSTOMERS -------------------------

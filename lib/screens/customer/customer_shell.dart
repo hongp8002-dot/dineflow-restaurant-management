@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../data/auth_repository.dart';
 
 import '../../data/cart_store.dart';
 import '../../widgets/app_animations.dart';
@@ -85,6 +86,8 @@ class _CustomerShellState extends State<CustomerShell> with SingleTickerProvider
     if (_index == index) return;
     setState(() => _index = index);
     _fadeController.forward(from: 0);
+    // Mở tab Tài khoản: tải lại điểm/hạng (có thể vừa được cộng sau khi thanh toán).
+    if (index == CustomerTab.account.index) AuthRepository.instance.refreshProfile();
   }
 
   @override

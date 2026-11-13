@@ -114,12 +114,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: Align(
                           alignment: Alignment.centerRight,
                           child: TextButton(
-                            onPressed: () {
-                              ScaffoldMessenger.of(context)
-                                ..hideCurrentSnackBar()
-                                ..showSnackBar(const SnackBar(
-                                    content: Text('Vui lòng liên hệ quản lý để đặt lại mật khẩu')));
-                            },
+                            onPressed: () => Navigator.of(context).pushNamed(AppRoutes.forgotPassword),
                             style: TextButton.styleFrom(
                               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                               minimumSize: Size.zero,

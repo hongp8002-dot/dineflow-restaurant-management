@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api/api_exception.dart';
 import '../../data/app_data.dart';
@@ -8,6 +9,7 @@ import '../../models/revenue.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/formatters.dart';
 import '../../widgets/app_animations.dart';
+import '../../widgets/app_button.dart';
 import '../../widgets/live_data.dart';
 import '../../widgets/mock_bar_chart.dart';
 import '../../widgets/section_header.dart';
@@ -134,7 +136,21 @@ class _RevenueReportScreenState extends State<RevenueReportScreen> {
     final totalRevenue = data.fold<double>(0, (sum, p) => sum + p.amount);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Báo cáo doanh thu')),
+      appBar: AppBar(
+        title: const Text('Báo cáo doanh thu'),
+        actions: [
+          TextButton.icon(
+            onPressed: () => showModalBottomSheet(
+              context: context,
+              isScrollControlled: true,
+              backgroundColor: Colors.transparent,
+              builder: (_) => const _ExportSheet(),
+            ),
+            icon: Icon(Icons.file_download_outlined, color: AppColors.textPrimary),
+            label: Text('Xuất Excel', style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
       body: SafeArea(
         top: false,
         child: RefreshIndicator(
@@ -331,6 +347,176 @@ class _RevenueReportScreenState extends State<RevenueReportScreen> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Bảng xuất báo cáo Excel: chọn Ngày / Tháng / Năm (cùng lựa chọn với nút Xuất trên web /admin).
+/// Tháng và năm chỉ liệt kê những kỳ đã có doanh thu (server tính). Bấm tải → server trả link có
+/// chữ ký 5 phút → mở bằng trình duyệt để tải file .xlsx (không cần thư viện lưu file).
+class _ExportSheet extends StatefulWidget {
+  const _ExportSheet();
+
+  @override
+  State<_ExportSheet> createState() => _ExportSheetState();
+}
+
+class _ExportSheetState extends State<_ExportSheet> {
+  String _type = 'month';
+  DateTime _day = DateTime.now();
+  String? _month;
+  String? _year;
+
+  ExportPeriods? _periods;
+  String? _error;
+  bool _downloading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPeriods();
+  }
+
+  Future<void> _loadPeriods() async {
+    try {
+      final periods = await ReportRepository.instance.fetchExportPeriods();
+      if (!mounted) return;
+      setState(() {
+        _periods = periods;
+        _month = periods.months.isNotEmpty ? periods.months.first.value : null;
+        _year = periods.years.isNotEmpty ? periods.years.first.value : null;
+      });
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    }
+  }
+
+  String? get _value => switch (_type) {
+        'day' => '${_day.year.toString().padLeft(4, '0')}-${_day.month.toString().padLeft(2, '0')}-${_day.day.toString().padLeft(2, '0')}',
+        'month' => _month,
+        _ => _year,
+      };
+
+  Future<void> _pickDay() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _day,
+      firstDate: DateTime(2020),
+      lastDate: now,
+      helpText: 'Chọn ngày xuất báo cáo',
+    );
+    if (picked != null && mounted) setState(() => _day = picked);
+  }
+
+  Future<void> _download() async {
+    final value = _value;
+    if (value == null || _downloading) return;
+    setState(() => _downloading = true);
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    try {
+      final link = await ReportRepository.instance.createExportLink(_type, value);
+      final opened = await launchUrl(Uri.parse(link.url), mode: LaunchMode.externalApplication);
+      if (!opened) throw const ApiException('Không mở được trình duyệt để tải file.');
+      navigator.pop();
+      messenger.showSnackBar(SnackBar(content: Text('Đang tải báo cáo ${link.label} bằng trình duyệt…')));
+    } on ApiException catch (e) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(e.message), backgroundColor: AppColors.error));
+    } finally {
+      if (mounted) setState(() => _downloading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final periods = _periods;
+    final label = TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppColors.textPrimary);
+    final options = _type == 'month' ? periods?.months : periods?.years;
+
+    Widget body;
+    if (_error != null) {
+      body = Text(_error!, style: TextStyle(color: AppColors.error));
+    } else if (periods == null) {
+      body = const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator()));
+    } else {
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Xuất theo', style: label),
+          const SizedBox(height: 8),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'day', label: Text('Ngày')),
+              ButtonSegment(value: 'month', label: Text('Tháng')),
+              ButtonSegment(value: 'year', label: Text('Năm')),
+            ],
+            selected: {_type},
+            showSelectedIcon: false,
+            onSelectionChanged: (s) => setState(() => _type = s.first),
+          ),
+          const SizedBox(height: 16),
+          if (_type == 'day')
+            OutlinedButton.icon(
+              onPressed: _pickDay,
+              icon: const Icon(Icons.calendar_today_outlined, size: 18),
+              label: Text(AppFormatters.date(_day)),
+            )
+          else if (options == null || options.isEmpty)
+            Text('Chưa có doanh thu để xuất.', style: TextStyle(color: AppColors.textSecondary))
+          else
+            DropdownButtonFormField<String>(
+              value: _type == 'month' ? _month : _year,
+              decoration: InputDecoration(
+                labelText: _type == 'month' ? 'Tháng có doanh thu' : 'Năm có doanh thu',
+              ),
+              items: [for (final o in options) DropdownMenuItem(value: o.value, child: Text(o.label))],
+              onChanged: (v) => setState(() {
+                if (_type == 'month') {
+                  _month = v;
+                } else {
+                  _year = v;
+                }
+              }),
+            ),
+          const SizedBox(height: 8),
+          Text(
+            _type == 'year'
+                ? 'File gồm: Hóa đơn, Doanh thu theo ngày, Doanh thu theo tháng, Món bán chạy.'
+                : 'File gồm: Hóa đơn, Doanh thu theo ngày, Món bán chạy.',
+            style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 16),
+          AppButton(
+            label: 'Tải file Excel',
+            icon: Icons.file_download_outlined,
+            isLoading: _downloading,
+            onPressed: _value == null ? null : _download,
+          ),
+        ],
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Xuất báo cáo Excel', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppColors.textPrimary)),
+            const SizedBox(height: 16),
+            body,
+          ],
         ),
       ),
     );

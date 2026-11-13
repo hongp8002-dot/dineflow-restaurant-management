@@ -10,6 +10,7 @@ import '../../data/loyalty_rules.dart';
 //import '../../data/member_repository.dart';
 import '../../data/mock_data.dart';
 import '../../data/order_staff_repository.dart';
+import '../../data/settings_repository.dart';
 import '../../models/customer.dart';
 import '../../models/invoice.dart';
 import '../../models/order.dart';
@@ -26,19 +27,8 @@ import '../../widgets/labeled_value_row.dart';
 import '../../widgets/live_data.dart';
 import '../../widgets/order_items_card.dart';
 
-// ─── Thông tin tài khoản ngân hàng demo ─────────────────────────────────────
-// TODO (production): đọc từ cấu hình server thay vì hardcode.
-const _kCashierBankId = 'VCB';
-const _kCashierBankName = 'VCB – Vietcombank';
-const _kCashierAccountNo = '1234567890';
-const _kCashierAccountName = 'DINEFLOW RESTAURANT';
-
-String _cashierQrUrl(double amount, String refCode) {
-  final note = Uri.encodeComponent('Thanh toan $refCode DineFlow');
-  final accName = Uri.encodeComponent(_kCashierAccountName);
-  return 'https://img.vietqr.io/image/$_kCashierBankId-$_kCashierAccountNo-compact2.png'
-      '?amount=${amount.toInt()}&addInfo=$note&accountName=$accName';
-}
+// Tài khoản nhận chuyển khoản lấy từ server (GET /api/settings → config/restaurant.php),
+// không viết cứng trong app. Xem SettingsRepository.
 
 /// Màn hình thanh toán – Quy tắc Kiểu A:
 ///
@@ -92,7 +82,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
   /// Gắn khách thành viên vào phiên thanh toán.
   Future<void> _scanMember(Order order) async {
-    final Customer? customer = await Navigator.of(context).pushNamed(AppRoutes.cashierScanMember);
+    // Không gán thẳng vào `Customer?`: Dart sẽ hiểu là pushNamed<Customer?> và đòi route kiểu
+    // Route<Customer?>, trong khi routes.dart tạo MaterialPageRoute<dynamic> → lỗi ép kiểu,
+    // bấm vào ô không mở được màn quét. Nhận Object? rồi kiểm tra kiểu.
+    final result = await Navigator.of(context).pushNamed(AppRoutes.cashierScanMember);
+    final customer = result is Customer ? result : null;
     if (customer == null || !mounted) return;
     setState(() => _member = customer);
   }
@@ -109,6 +103,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         order.id,
         method: _method,
         promotionCode: promotion?.code,
+        memberCode: _member?.memberCode,
       );
       unawaited(AppData.refresh({LiveSource.orders, LiveSource.tables, LiveSource.invoices}, force: true));
       navigator.pushReplacementNamed(AppRoutes.cashierInvoice, arguments: invoice);
@@ -122,32 +117,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
   }
 
-  /// Huỷ đơn — chỉ thu ngân, chỉ đơn chưa thanh toán.
+  /// Huỷ đơn — chỉ thu ngân, chỉ đơn chưa thanh toán, bắt buộc chọn lý do (nhóm chốt 13/11).
   Future<void> _cancel(Order order) async {
     if (_cancelling) return;
 
-    final confirm = await showDialog<bool>(
+    final choice = await showDialog<({String reason, String note})>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Huỷ đơn hàng?'),
-        content: Text(
-          'Bạn có chắc muốn huỷ đơn #${order.displayCode}?\n'
-          'Hành động này không thể hoàn tác.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Không'),
-          ),
-          TextButton(
-            style: TextButton.styleFrom(foregroundColor: AppColors.error),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Huỷ đơn'),
-          ),
-        ],
-      ),
+      builder: (ctx) => _CancelReasonDialog(orderCode: order.displayCode),
     );
-    if (confirm != true || !mounted) return;
+    if (choice == null || !mounted) return;
 
     setState(() => _cancelling = true);
 
@@ -155,7 +133,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final navigator = Navigator.of(context);
 
     try {
-      await OrderStaffRepository.instance.cancelOrder(order.id);
+      await OrderStaffRepository.instance.cancelOrder(order.id, reason: choice.reason, note: choice.note);
       unawaited(AppData.refresh({LiveSource.orders, LiveSource.tables}, force: true));
       navigator.pop();
       messenger.showSnackBar(
@@ -472,7 +450,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
             Icon(Icons.qr_code_scanner_rounded, color: AppColors.textPrimary, size: 20),
             const SizedBox(width: 10),
             Text(
-              'Quét QR để áp dụng giảm giá thành viên',
+              'Quét QR hoặc nhập mã thành viên',
               style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
             ),
           ],
@@ -494,8 +472,16 @@ class _CashierQrPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final qrUrl = _cashierQrUrl(amount, orderCode);
+    final bank = SettingsRepository.instance.bank;
+    if (bank == null) {
+      return const EmptyState(
+        icon: Icons.cloud_off_rounded,
+        title: 'Chưa tải được thông tin chuyển khoản',
+        message: 'Đăng nhập lại để tải tài khoản ngân hàng của nhà hàng, hoặc chọn thu tiền mặt / thẻ.',
+      );
+    }
     final noteText = 'Thanh toan $orderCode DineFlow';
+    final qrUrl = bank.qrImageUrl(amount, noteText);
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -563,11 +549,11 @@ class _CashierQrPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          _InfoRowQ(label: 'Ngân hàng', value: _kCashierBankName),
+          _InfoRowQ(label: 'Ngân hàng', value: bank.name),
           const SizedBox(height: 8),
-          _InfoRowQ(label: 'Số TK', value: _kCashierAccountNo),
+          _InfoRowQ(label: 'Số TK', value: bank.accountNo),
           const SizedBox(height: 8),
-          _InfoRowQ(label: 'Chủ TK', value: _kCashierAccountName),
+          _InfoRowQ(label: 'Chủ TK', value: bank.accountName),
           const SizedBox(height: 8),
           _InfoRowQ(
               label: 'Số tiền',
@@ -897,6 +883,74 @@ class _MethodTile extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Hộp thoại hủy đơn: chọn lý do (Nhập nhầm / Khách bỏ về / Hết món / Khác) + ghi chú.
+/// "Khác" bắt buộc ghi chú. Trả về lựa chọn, hoặc null nếu không hủy.
+class _CancelReasonDialog extends StatefulWidget {
+  final String orderCode;
+
+  const _CancelReasonDialog({required this.orderCode});
+
+  @override
+  State<_CancelReasonDialog> createState() => _CancelReasonDialogState();
+}
+
+class _CancelReasonDialogState extends State<_CancelReasonDialog> {
+  String? _reason;
+  final _noteCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _noteCtrl.dispose();
+    super.dispose();
+  }
+
+  bool get _valid => _reason != null && (_reason != 'other' || _noteCtrl.text.trim().isNotEmpty);
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Huỷ đơn #${widget.orderCode}?'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Chọn lý do huỷ (bắt buộc). Hành động này không thể hoàn tác.',
+                style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+            const SizedBox(height: 8),
+            for (final entry in OrderStaffRepository.cancelReasons.entries)
+              RadioListTile<String>(
+                value: entry.key,
+                groupValue: _reason,
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(entry.value),
+                onChanged: (v) => setState(() => _reason = v),
+              ),
+            TextField(
+              controller: _noteCtrl,
+              maxLength: 255,
+              maxLines: 2,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                hintText: _reason == 'other' ? 'Ghi rõ lý do (bắt buộc)' : 'Ghi chú thêm (không bắt buộc)',
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Không')),
+        TextButton(
+          style: TextButton.styleFrom(foregroundColor: AppColors.error),
+          onPressed: _valid ? () => Navigator.of(context).pop((reason: _reason!, note: _noteCtrl.text.trim())) : null,
+          child: const Text('Huỷ đơn'),
+        ),
+      ],
     );
   }
 }

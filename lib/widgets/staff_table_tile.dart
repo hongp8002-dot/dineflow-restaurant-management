@@ -85,7 +85,10 @@ class StaffTableTile extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        tableStatusShortLabel(table.status),
+                        // Bàn đặt trước: kèm giờ khách tới để nhân viên biết ngay
+                        table.status == TableStatus.reserved && table.nextReservation != null
+                            ? '${tableStatusShortLabel(table.status)} ${AppFormatters.time(table.nextReservation!.dateTime)}'
+                            : tableStatusShortLabel(table.status),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style:

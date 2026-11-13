@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../core/api/api_exception.dart';
 import '../../data/app_data.dart';
 import '../../data/mock_data.dart';
+import '../../data/settings_repository.dart';
 import '../../models/reservation.dart';
 
 import '../../app/routes.dart';
@@ -20,19 +21,8 @@ import '../../widgets/labeled_value_row.dart';
 import 'booking_checkout.dart';
 import 'booking_confirmation_screen.dart';
 
-// ─── Thông tin tài khoản ngân hàng demo ────────────────────────────────────
-// TODO (production): đọc từ cấu hình server thay vì hardcode.
-const _kBankId = 'VCB';
-const _kBankName = 'VCB – Vietcombank';
-const _kAccountNo = '1234567890';
-const _kAccountName = 'DINEFLOW RESTAURANT';
-
-String _vietQrUrl(double amount, String refId) {
-  final note = Uri.encodeComponent('Dat ban $refId DineFlow');
-  final accName = Uri.encodeComponent(_kAccountName);
-  return 'https://img.vietqr.io/image/$_kBankId-$_kAccountNo-compact2.png'
-      '?amount=${amount.toInt()}&addInfo=$note&accountName=$accName';
-}
+// Tài khoản nhận chuyển khoản lấy từ server (GET /api/settings → config/restaurant.php),
+// không viết cứng trong app. Xem SettingsRepository.
 
 /// Bước 3 của luồng đặt bàn qua app: "Thanh toán".
 ///
@@ -301,7 +291,8 @@ class _BookingPaymentScreenState extends State<BookingPaymentScreen>
                     // ── QR Chuyển khoản ─────────────────────────────────
                     step(_BankQrSection(
                       amount: total,
-                      refId: reservation.id.toString(),
+                      // Mã đặt bàn (DF-xxxx) khớp với mã NV Order / Thu ngân / Admin thấy trong Lịch đặt bàn
+                      refId: reservation.code,
                     )),
                   ],
                 ],
@@ -339,8 +330,17 @@ class _BankQrSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final qrUrl = _vietQrUrl(amount, refId);
+    final bank = SettingsRepository.instance.bank;
+    if (bank == null) {
+      // Không hiện số tài khoản đoán mò: thà báo lỗi để khách không chuyển nhầm.
+      return const EmptyState(
+        icon: Icons.cloud_off_rounded,
+        title: 'Chưa tải được thông tin chuyển khoản',
+        message: 'Kiểm tra kết nối mạng rồi đăng nhập lại để tải thông tin tài khoản của nhà hàng.',
+      );
+    }
     final noteText = 'Dat ban $refId DineFlow';
+    final qrUrl = bank.qrImageUrl(amount, noteText);
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -403,15 +403,15 @@ class _BankQrSection extends StatelessWidget {
           const SizedBox(height: 16),
 
           // Thông tin tài khoản
-          _InfoRow(label: 'Ngân hàng', value: _kBankName),
+          _InfoRow(label: 'Ngân hàng', value: bank.name),
           const SizedBox(height: 8),
           _InfoRow(
             label: 'Số TK',
-            value: _kAccountNo,
-            copyValue: _kAccountNo,
+            value: bank.accountNo,
+            copyValue: bank.accountNo,
           ),
           const SizedBox(height: 8),
-          _InfoRow(label: 'Chủ TK', value: _kAccountName),
+          _InfoRow(label: 'Chủ TK', value: bank.accountName),
           const SizedBox(height: 8),
           _InfoRow(
             label: 'Số tiền',

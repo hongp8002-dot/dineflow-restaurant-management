@@ -51,6 +51,19 @@ class AuthRepository {
     await _session.clear();
   }
 
+  /// Tải lại hồ sơ của tài khoản đang đăng nhập (điểm, hạng thành viên...) từ `GET /me`,
+  /// vd sau khi thu ngân thanh toán và cộng điểm. Màn nào nghe [SessionStore] sẽ tự vẽ lại.
+  /// Lỗi mạng thì giữ hồ sơ đang có, không báo lỗi.
+  Future<void> refreshProfile() async {
+    if (!_session.isSignedIn) return;
+    try {
+      final res = await _api.get('/me');
+      await _session.updateUser(res.map);
+    } on ApiException catch (_) {
+      // Giữ hồ sơ cũ; lần mở màn sau sẽ thử lại.
+    }
+  }
+
   /// Đổi mật khẩu của tài khoản đang đăng nhập. Server kiểm tra mật khẩu hiện tại;
   /// sai thì ném [ApiException] 422 có `errors['current_password']`.
   /// Đổi xong, token của các máy khác bị thu hồi, máy này vẫn giữ phiên.
@@ -77,6 +90,31 @@ class AuthRepository {
       }
     }
     return _session.user;
+  }
+
+  // ── Quên mật khẩu (OTP qua email, chỉ tài khoản khách hàng) ─────────────────
+
+  /// Bước 1: xin mã OTP gửi tới [email]. Trả về số giây phải chờ trước khi được gửi lại.
+  /// Server luôn trả lời như nhau dù email có tài khoản hay không (chống dò tài khoản).
+  Future<({String message, int resendIn})> requestPasswordReset(String email) async {
+    final res = await _api.post('/password/forgot', body: {'email': email.trim()});
+    return (message: res.message, resendIn: (res.map['resend_in'] as num?)?.toInt() ?? 60);
+  }
+
+  /// Bước 2: kiểm tra mã. Sai thì ném [ApiException] 422 kèm số lần thử còn lại.
+  Future<void> verifyPasswordResetCode(String email, String code) async {
+    await _api.post('/password/verify', body: {'email': email.trim(), 'code': code.trim()});
+  }
+
+  /// Bước 3: đặt mật khẩu mới. Thành công thì mọi thiết bị đang đăng nhập tài khoản này bị đăng xuất.
+  Future<String> resetPassword({required String email, required String code, required String password}) async {
+    final res = await _api.post('/password/reset', body: {
+      'email': email.trim(),
+      'code': code.trim(),
+      'password': password,
+      'password_confirmation': password,
+    });
+    return res.message;
   }
 
   Future<User> _startSession(Map<String, dynamic> data) async {

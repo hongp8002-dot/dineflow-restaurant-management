@@ -1,6 +1,7 @@
 import '../core/api/api_client.dart';
 import '../models/food.dart';
 import '../models/food_category.dart';
+import '../models/order.dart';
 import '../models/promotion.dart';
 import '../models/table_model.dart';
 import '../models/user.dart';
@@ -33,6 +34,23 @@ class AdminRepository {
     return User.fromApiJson(res.map);
   }
   Future<void> deleteUser(String id) async => _api.delete('/admin/users/$id');
+  /// Đặt lại mật khẩu NV Order / Thu ngân về 123456 (server đăng xuất mọi thiết bị của người đó).
+  Future<String> resetUserPassword(String id) async {
+    final res = await _api.patch('/admin/users/$id/reset-password', body: {});
+    return res.message;
+  }
+
+  // ĐƠN ĐÃ HỦY
+  /// Đơn bị hủy trong ngày [date] (giờ quán), mới nhất trước, kèm lý do / người hủy.
+  Future<({List<Order> orders, double total})> fetchCancelledOrders(DateTime date) async {
+    final day = '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final res = await _api.get('/admin/cancelled-orders', query: {'date': day});
+    final data = res.map;
+    return (
+      orders: [for (final o in (data['orders'] as List<dynamic>).cast<Map<String, dynamic>>()) Order.fromApiJson(o)],
+      total: (data['total_amount'] as num?)?.toDouble() ?? 0,
+    );
+  }
 
   // FOODS
   Future<List<Food>> fetchFoods({int? categoryId, String? search}) async {
@@ -97,11 +115,11 @@ class AdminRepository {
     return [for (final p in res.list) Promotion.fromApiJson(p)];
   }
   Future<Promotion> createPromotion({required String code, required String title, String? description, required int discountPercent, double? maxDiscount, double? minOrderAmount, required DateTime validFrom, required DateTime validTo, bool isActive = true}) async {
-    final res = await _api.post('/admin/promotions', body: {'code': code.toUpperCase(), 'title': title, if (description != null && description.isNotEmpty) 'description': description, 'discount_percent': discountPercent, if (maxDiscount != null) 'max_discount': maxDiscount, if (minOrderAmount != null) 'min_order_amount': minOrderAmount, 'valid_from': validFrom.toIso8601String(), 'valid_to': validTo.toIso8601String(), 'is_active': isActive});
+    final res = await _api.post('/admin/promotions', body: {'code': code.toUpperCase(), 'title': title, if (description != null && description.isNotEmpty) 'description': description, 'discount_percent': discountPercent, if (maxDiscount != null) 'max_discount': maxDiscount, if (minOrderAmount != null) 'min_order_amount': minOrderAmount, 'valid_from': validFrom.toUtc().toIso8601String(), 'valid_to': validTo.toUtc().toIso8601String(), 'is_active': isActive});
     return Promotion.fromApiJson(res.map);
   }
   Future<Promotion> updatePromotion(String id, {String? title, String? description, int? discountPercent, double? maxDiscount, double? minOrderAmount, DateTime? validFrom, DateTime? validTo}) async {
-    final res = await _api.put('/admin/promotions/$id', body: {if (title != null) 'title': title, if (description != null) 'description': description, if (discountPercent != null) 'discount_percent': discountPercent, if (maxDiscount != null) 'max_discount': maxDiscount, if (minOrderAmount != null) 'min_order_amount': minOrderAmount, if (validFrom != null) 'valid_from': validFrom.toIso8601String(), if (validTo != null) 'valid_to': validTo.toIso8601String()});
+    final res = await _api.put('/admin/promotions/$id', body: {if (title != null) 'title': title, if (description != null) 'description': description, if (discountPercent != null) 'discount_percent': discountPercent, if (maxDiscount != null) 'max_discount': maxDiscount, if (minOrderAmount != null) 'min_order_amount': minOrderAmount, if (validFrom != null) 'valid_from': validFrom.toUtc().toIso8601String(), if (validTo != null) 'valid_to': validTo.toUtc().toIso8601String()});
     return Promotion.fromApiJson(res.map);
   }
   Future<Promotion> togglePromotionActive(String id) async {

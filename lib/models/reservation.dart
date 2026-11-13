@@ -27,6 +27,11 @@ class Reservation {
   final String code;
   final String customerId;
 
+  /// Tên và số điện thoại khách. Chỉ có ở danh sách lịch đặt cho nhân viên
+  /// (`GET /reservations`); null ở màn của chính khách.
+  final String? customerName;
+  final String? customerPhone;
+
   /// Danh sách id các bàn thuộc lượt đặt này (1 phần tử nếu không ghép bàn).
   final List<String> tableIds;
 
@@ -67,6 +72,8 @@ class Reservation {
     required this.id,
     required this.code,
     required this.customerId,
+    this.customerName,
+    this.customerPhone,
     required this.tableIds,
     required this.tableNumbers,
     required this.area,
@@ -92,6 +99,8 @@ class Reservation {
       id: json['id'].toString(),
       code: json['code'] as String,
       customerId: json['customer_id'].toString(),
+      customerName: json['customer_name'] as String?,
+      customerPhone: json['customer_phone'] as String?,
       tableIds: [for (final id in json['table_ids'] as List<dynamic>) id.toString()],
       tableNumbers: [for (final n in json['table_numbers'] as List<dynamic>) n as String],
       area: json['area'] as String,
@@ -142,6 +151,8 @@ class Reservation {
       id: id,
       code: code,
       customerId: customerId,
+      customerName: customerName,
+      customerPhone: customerPhone,
       tableIds: tableIds,
       tableNumbers: tableNumbers,
       area: area,

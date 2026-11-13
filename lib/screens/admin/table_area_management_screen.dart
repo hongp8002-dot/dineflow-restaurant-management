@@ -104,7 +104,13 @@ class _TableAreaManagementScreenState extends State<TableAreaManagementScreen> {
     final areas = _tables.map((t) => t.area).toSet().toList();
     final numberCtrl = TextEditingController(text: table?.number ?? '');
     final capacityCtrl = TextEditingController(text: table != null ? '${table.capacity}' : '');
-    String selectedArea = table?.area ?? (areas.isNotEmpty ? areas.first : '');
+    // Một ô chọn khu vực: các khu vực đã có + mục "Khu vực mới…". Chỉ khi chọn mục mới
+    // (hoặc chưa có khu vực nào) mới hiện ô nhập tên khu vực.
+    const newAreaValue = '__new_area__';
+    String areaChoice = table?.area ?? (areas.isNotEmpty ? areas.first : newAreaValue);
+    // Tạo controller MỘT lần (không tạo trong builder) để chữ đang gõ không bị mất khi sheet vẽ lại.
+    final newAreaCtrl = TextEditingController();
+    String resolvedArea() => areaChoice == newAreaValue ? newAreaCtrl.text.trim() : areaChoice;
     final formKey = GlobalKey<FormState>();
 
     showModalBottomSheet(
@@ -139,27 +145,35 @@ class _TableAreaManagementScreenState extends State<TableAreaManagementScreen> {
                     },
                   ),
                   const SizedBox(height: 14),
-                  Text('Khu vực', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textSecondary)),
-                  const SizedBox(height: 6),
-                  // Cho phép nhập thủ công hoặc chọn khu vực đã có
-                  if (areas.isNotEmpty) ...[
+                  Text('Khu vực', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                  const SizedBox(height: 8),
+                  if (areas.isNotEmpty)
                     DropdownButtonFormField<String>(
-                      value: areas.contains(selectedArea) ? selectedArea : null,
-                      hint: const Text('Chọn khu vực'),
+                      value: areaChoice,
                       decoration: InputDecoration(contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.border)), enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.border))),
-                      items: areas.map((a) => DropdownMenuItem(value: a, child: Text(a))).toList(),
-                      onChanged: (v) => setSheet(() => selectedArea = v ?? selectedArea),
+                      items: [
+                        for (final a in areas) DropdownMenuItem(value: a, child: Text(a)),
+                        const DropdownMenuItem(value: newAreaValue, child: Text('+ Khu vực mới…')),
+                      ],
+                      onChanged: (v) => setSheet(() => areaChoice = v ?? areaChoice),
                     ),
-                    const SizedBox(height: 8),
-                    Text('hoặc nhập khu vực mới:', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                    const SizedBox(height: 6),
+                  // Ô nhập tên khu vực mới: chỉ hiện khi chọn "Khu vực mới…" hoặc chưa có khu vực nào
+                  if (areaChoice == newAreaValue) ...[
+                    if (areas.isNotEmpty) const SizedBox(height: 10),
+                    AppTextField(
+                      controller: newAreaCtrl,
+                      label: 'Tên khu vực mới',
+                      hint: 'VD: Tầng 3, Sân vườn',
+                      validator: (v) {
+                        final name = (v ?? '').trim();
+                        if (name.isEmpty) return 'Vui lòng nhập tên khu vực';
+                        // Gõ trùng khu vực đã có (khác hoa/thường) thì nhắc chọn trong danh sách
+                        final existing = areas.where((a) => a.toLowerCase() == name.toLowerCase());
+                        if (existing.isNotEmpty) return 'Khu vực "${existing.first}" đã có, hãy chọn trong danh sách';
+                        return null;
+                      },
+                    ),
                   ],
-                  AppTextField(
-                    controller: TextEditingController(text: areas.contains(selectedArea) ? selectedArea : ''),
-                    label: 'Khu vực',
-                    hint: 'VD: Tầng 1, Ngoài trời',
-                    onChanged: (v) => selectedArea = v,
-                  ),
                   const SizedBox(height: 20),
                   AppButton(
                     label: table == null ? 'Thêm bàn' : 'Lưu thay đổi',
@@ -171,7 +185,7 @@ class _TableAreaManagementScreenState extends State<TableAreaManagementScreen> {
                         if (table == null) {
                           await _repo.createTable(
                             number: numberCtrl.text.trim(),
-                            area: selectedArea.trim(),
+                            area: resolvedArea(),
                             capacity: int.parse(capacityCtrl.text.trim()),
                           );
                           _snack('Đã thêm bàn "${numberCtrl.text.trim()}"');
@@ -179,7 +193,7 @@ class _TableAreaManagementScreenState extends State<TableAreaManagementScreen> {
                           await _repo.updateTable(
                             table.id,
                             number: numberCtrl.text.trim(),
-                            area: selectedArea.trim(),
+                            area: resolvedArea(),
                             capacity: int.parse(capacityCtrl.text.trim()),
                           );
                           _snack('Đã cập nhật "${table.number}"');

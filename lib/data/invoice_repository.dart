@@ -27,6 +27,7 @@ class InvoiceRepository {
     String orderId, {
     required PaymentMethod method,
     String? promotionCode,
+    String? memberCode,
   }) async {
     final id = int.tryParse(orderId);
     if (id == null) {
@@ -37,6 +38,8 @@ class InvoiceRepository {
     final res = await _api.post('/orders/$id/pay', body: {
       'payment_method': method.name,
       if (promotionCode != null && promotionCode.isNotEmpty) 'promotion_code': promotionCode,
+      // Mã thành viên thu ngân quét / nhập: server gắn khách vào đơn để giảm theo hạng và cộng điểm
+      if (memberCode != null && memberCode.isNotEmpty) 'member_code': memberCode,
     });
     return Invoice.fromApiJson(res.map);
   }

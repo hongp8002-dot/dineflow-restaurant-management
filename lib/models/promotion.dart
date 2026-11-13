@@ -23,6 +23,10 @@ class Promotion {
   final DateTime endDate;
   final PromotionStatus status;
 
+  /// Admin đang bật khuyến mãi (is_active). Tắt thì server báo status "expired" dù còn hạn,
+  /// nên màn quản lý dùng cờ này để hiện "Đã tắt" và nút Bật/Tắt cho đúng.
+  final bool isActive;
+
   /// Số tiền giảm tối đa (null = không giới hạn) và giá trị đơn tối thiểu để áp dụng.
   final double? maxDiscount;
   final double minOrderAmount;
@@ -35,6 +39,7 @@ class Promotion {
     required this.startDate,
     required this.endDate,
     required this.status,
+    this.isActive = true,
     this.maxDiscount,
     this.minOrderAmount = 0,
   });
@@ -53,6 +58,7 @@ class Promotion {
         'expired' => PromotionStatus.expired,
         _ => PromotionStatus.active,
       },
+      isActive: json['is_active'] as bool? ?? true,
       maxDiscount: (json['max_discount'] as num?)?.toDouble(),
       minOrderAmount: (json['min_order_amount'] as num?)?.toDouble() ?? 0,
     );

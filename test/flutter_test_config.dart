@@ -128,6 +128,7 @@ class _OfflineInvoices extends InvoiceRepository {
     String orderId, {
     required PaymentMethod method,
     String? promotionCode,
+    String? memberCode,
     int pointsUsed = 0,
   }) async {
     final order = MockData.orderById(orderId);

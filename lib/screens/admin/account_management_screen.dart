@@ -95,6 +95,34 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
     }
   }
 
+  // ── Đặt lại mật khẩu (chỉ NV Order / Thu ngân) ──────────────────────────
+
+  Future<void> _confirmResetPassword(User user) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Đặt lại mật khẩu', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+        content: Text(
+          'Đặt lại mật khẩu của "${user.name}" về 123456?\n'
+          'Nhân viên sẽ bị đăng xuất khỏi mọi thiết bị và tự đổi mật khẩu sau khi đăng nhập.\n'
+          'Mật khẩu cũ không xem được vì được lưu dạng mã hóa.',
+          style: TextStyle(fontSize: 13.5, color: AppColors.textSecondary, height: 1.5),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Huỷ')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Đặt lại')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      _showSnack(await _repo.resetUserPassword(user.id));
+    } on ApiException catch (e) {
+      _showSnack(e.message, isError: true);
+    }
+  }
+
   // ── "Xóa" = Khoá vĩnh viễn ──────────────────────────────────────────────
 
   Future<void> _confirmDelete(User user) async {
@@ -217,6 +245,10 @@ class _AccountManagementScreenState extends State<AccountManagementScreen> {
           onEdit: () => _showUserForm(_users[i]),
           onToggle: () => _toggleStatus(_users[i]),
           onDelete: () => _confirmDelete(_users[i]),
+          // Chỉ nhân viên mới đặt lại mật khẩu ở đây; khách dùng "Quên mật khẩu" (OTP email)
+          onResetPassword: _users[i].role == UserRole.orderStaff || _users[i].role == UserRole.cashier
+              ? () => _confirmResetPassword(_users[i])
+              : null,
         ),
       ),
     );
@@ -230,8 +262,9 @@ class _UserTile extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onToggle;
   final VoidCallback onDelete;
+  final VoidCallback? onResetPassword;
 
-  const _UserTile({required this.user, required this.onEdit, required this.onToggle, required this.onDelete});
+  const _UserTile({required this.user, required this.onEdit, required this.onToggle, required this.onDelete, this.onResetPassword});
 
   @override
   Widget build(BuildContext context) {
@@ -282,9 +315,11 @@ class _UserTile extends StatelessWidget {
                 if (v == 'edit') onEdit();
                 if (v == 'toggle') onToggle();
                 if (v == 'delete') onDelete();
+                if (v == 'reset') onResetPassword?.call();
               },
               itemBuilder: (_) => [
                 const PopupMenuItem(value: 'edit', child: Text('Sửa thông tin')),
+                if (onResetPassword != null) const PopupMenuItem(value: 'reset', child: Text('Đặt lại mật khẩu')),
                 PopupMenuItem(value: 'toggle', child: Text(isLocked ? 'Kích hoạt' : 'Khoá tài khoản')),
                 const PopupMenuItem(value: 'delete', child: Text('Xóa', style: TextStyle(color: Colors.red))),
               ],

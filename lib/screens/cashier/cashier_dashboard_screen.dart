@@ -135,6 +135,14 @@ class CashierDashboardScreen extends StatelessWidget {
                         onTap: () => _open(context, CashierTab.shift, AppRoutes.cashierShift),
                       ),
                     ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _ShortcutCard(
+                        icon: Icons.event_note_rounded,
+                        label: 'Lịch đặt',
+                        onTap: () => Navigator.of(context).pushNamed(AppRoutes.reservationList),
+                      ),
+                    ),
                   ],
                 )),
               ],

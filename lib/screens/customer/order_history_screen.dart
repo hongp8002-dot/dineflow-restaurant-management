@@ -17,8 +17,9 @@ class OrderHistoryScreen extends StatelessWidget {
   Widget build(BuildContext context) => LiveData(sources: const {LiveSource.orders}, builder: _buildContent);
 
   Widget _buildContent(BuildContext context, Future<void> Function() refresh) {
-    final orders = MockData.orders.where((o) => o.customerName == MockData.currentCustomer.name).toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    // Server chỉ trả đơn của chính khách đang đăng nhập (lọc theo customer_id), nên không cần
+    // lọc lại ở đây. Trước đây lọc theo TÊN khách: hai khách trùng tên sẽ thấy đơn của nhau.
+    final orders = [...MockData.orders]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     return Scaffold(
       body: SafeArea(

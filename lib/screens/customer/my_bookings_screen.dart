@@ -5,7 +5,6 @@ import '../../data/app_data.dart';
 import '../../data/reservation_repository.dart';
 
 import '../../data/mock_data.dart';
-import '../../models/invoice.dart';
 import '../../models/reservation.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/formatters.dart';
@@ -67,12 +66,16 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> with SingleTickerPr
   void _onReservationsChanged() => setState(() {});
 
   Future<void> _confirmCancel(Reservation reservation) async {
+    // Tiền cọc không hoàn lại khi huỷ → nói rõ trước khi khách xác nhận.
+    final depositNote = reservation.isDepositPaid
+        ? '\n\nTiền cọc ${AppFormatters.currency(reservation.depositAmount ?? 0)} sẽ KHÔNG được hoàn lại.'
+        : '';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Huỷ đặt bàn?'),
         content: Text('Bạn có chắc muốn huỷ đặt bàn ${reservation.tableNumber} lúc '
-            '${AppFormatters.dateTime(reservation.dateTime)}?'),
+            '${AppFormatters.dateTime(reservation.dateTime)}?$depositNote'),
         actions: [
           TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Không')),
           TextButton(
@@ -89,7 +92,10 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> with SingleTickerPr
       MockData.upsertReservation(await ReservationRepository.instance.cancel(reservation.id));
       messenger
         ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(content: Text('Đã huỷ đặt bàn')));
+        ..showSnackBar(SnackBar(
+            content: Text(reservation.isDepositPaid
+                ? 'Đã huỷ đặt bàn. Tiền cọc không được hoàn lại.'
+                : 'Đã huỷ đặt bàn')));
     } on ApiException catch (e) {
       messenger
         ..hideCurrentSnackBar()
@@ -307,12 +313,6 @@ class _PreOrderSection extends StatelessWidget {
 
   const _PreOrderSection({required this.reservation});
 
-  static String _paymentLabel(PaymentMethod? method) => switch (method) {
-        PaymentMethod.cash || null => 'Trả tại quán',
-        PaymentMethod.qr => 'Đã thanh toán · Ví điện tử / QR',
-        PaymentMethod.card => 'Đã thanh toán · Thẻ ngân hàng',
-      };
-
   @override
   Widget build(BuildContext context) {
     final items = reservation.preOrderItems;
@@ -366,19 +366,22 @@ class _PreOrderSection extends StatelessWidget {
                 ),
               ),
             Divider(height: 16, color: AppColors.border),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(_paymentLabel(reservation.preOrderPayment),
-                      style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
-                ),
-                const SizedBox(width: 8),
-                Text(AppFormatters.currency(reservation.preOrderTotal),
-                    style:
-                        TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppColors.textPrimary)),
-              ],
-            ),
+            _MoneyRow(label: 'Tổng món đặt trước', value: reservation.preOrderTotal, bold: true),
+            // Đã cọc: hiện số tiền cọc và phần còn lại trả khi đến quán (thu ngân trừ cọc vào hóa đơn)
+            if (reservation.isDepositPaid) ...[
+              const SizedBox(height: 4),
+              _MoneyRow(label: 'Đã cọc', value: -(reservation.depositAmount ?? 0)),
+              const SizedBox(height: 4),
+              _MoneyRow(
+                label: 'Còn lại trả tại quán',
+                value: (reservation.preOrderTotal - (reservation.depositAmount ?? 0)).clamp(0, double.infinity).toDouble(),
+                bold: true,
+              ),
+            ] else ...[
+              const SizedBox(height: 4),
+              Text('Chưa cọc · Trả tại quán',
+                  style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+            ],
           ],
           if (upcoming) ...[
             const SizedBox(height: 8),
@@ -391,6 +394,32 @@ class _PreOrderSection extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// Một dòng tiền trong thẻ đặt bàn: nhãn bên trái, số tiền bên phải (số âm = khoản trừ).
+class _MoneyRow extends StatelessWidget {
+  final String label;
+  final double value;
+  final bool bold;
+
+  const _MoneyRow({required this.label, required this.value, this.bold = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = value < 0 ? '-${AppFormatters.currency(-value)}' : AppFormatters.currency(value);
+    return Row(
+      children: [
+        Expanded(child: Text(label, style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary))),
+        const SizedBox(width: 8),
+        Text(text,
+            style: TextStyle(
+              fontWeight: bold ? FontWeight.w800 : FontWeight.w600,
+              fontSize: bold ? 14 : 13,
+              color: AppColors.textPrimary,
+            )),
+      ],
     );
   }
 }

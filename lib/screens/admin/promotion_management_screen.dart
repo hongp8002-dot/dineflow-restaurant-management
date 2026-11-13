@@ -45,7 +45,7 @@ class _PromotionManagementScreenState extends State<PromotionManagementScreen> {
   // ── Bật / Tắt khuyến mãi ────────────────────────────────────────────────
 
   Future<void> _toggleActive(Promotion promo) async {
-    final isActive = promo.status == PromotionStatus.active;
+    final isActive = promo.isActive;
     final action = isActive ? 'tắt' : 'bật';
     final ok = await showDialog<bool>(
       context: context,
@@ -81,12 +81,22 @@ class _PromotionManagementScreenState extends State<PromotionManagementScreen> {
         final i = _promos.indexWhere((p) => p.id == promo.id);
         if (i >= 0) _promos[i] = updated;
       });
-      _snack(updated.status == PromotionStatus.active
+      _snack(updated.isActive
           ? '${promo.name}: đã bật'
           : '${promo.name}: đã tắt');
     } on ApiException catch (e) {
+      if (_handleDeleted(e)) return;
       _snack(e.message, isError: true);
     }
+  }
+
+  /// Khuyến mãi đã bị xóa ở nơi khác (vd trên web /admin) → server trả 404.
+  /// Báo rõ cho người dùng và tải lại danh sách để bỏ mục đã mất.
+  bool _handleDeleted(ApiException e) {
+    if (e.statusCode != 404) return false;
+    _snack('Khuyến mãi này không còn trên hệ thống (có thể đã bị xóa trên web). Đã tải lại danh sách.', isError: true);
+    _load();
+    return true;
   }
 
   // ── Form thêm / sửa ──────────────────────────────────────────────────────
@@ -120,6 +130,7 @@ class _PromotionManagementScreenState extends State<PromotionManagementScreen> {
             }
             _load();
           } on ApiException catch (e) {
+            if (_handleDeleted(e)) return;
             _snack(e.message, isError: true);
             setState(() => _loading = false);
           }
@@ -186,16 +197,22 @@ class _PromoTile extends StatelessWidget {
 
   const _PromoTile({required this.promo, required this.onEdit, required this.onToggle});
 
-  Color get _statusColor => switch (promo.status) {
-    PromotionStatus.active => AppColors.success,
-    PromotionStatus.upcoming => AppColors.info,
-    PromotionStatus.expired => AppColors.textSecondary,
-  };
+  Color get _statusColor => !promo.isActive
+      ? AppColors.warning
+      : switch (promo.status) {
+          PromotionStatus.active => AppColors.success,
+          PromotionStatus.upcoming => AppColors.info,
+          PromotionStatus.expired => AppColors.textSecondary,
+        };
+
+  /// "Đã tắt" (admin tắt) tách riêng khỏi "Đã hết hạn" (quá ngày kết thúc).
+  String get _statusLabel => promo.isActive ? promo.status.label : 'Đã tắt';
 
   @override
   Widget build(BuildContext context) {
-    final canToggle = promo.status != PromotionStatus.expired;
-    final isActive = promo.status == PromotionStatus.active;
+    // Bật/Tắt theo cờ is_active; chỉ ẩn nút khi đã quá ngày kết thúc (muốn dùng lại thì Sửa ngày).
+    final canToggle = promo.endDate.isAfter(DateTime.now());
+    final isActive = promo.isActive;
 
     return FadeSlideIn(
       child: Container(
@@ -210,7 +227,7 @@ class _PromoTile extends StatelessWidget {
           // Dòng 1: tên + trạng thái
           Row(children: [
             Expanded(child: Text(promo.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14))),
-            StatusBadge(label: promo.status.label, color: _statusColor, background: _statusColor.withValues(alpha: 0.12)),
+            StatusBadge(label: _statusLabel, color: _statusColor, background: _statusColor.withValues(alpha: 0.12)),
           ]),
           const SizedBox(height: 8),
           // Dòng 2: mã + % giảm

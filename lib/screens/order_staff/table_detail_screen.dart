@@ -72,6 +72,11 @@ class _TableDetailScreenState extends State<TableDetailScreen> {
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
                 children: [
+                  // Bàn đang giữ cho khách đặt trước: cho nhân viên biết khách nào, mấy giờ tới
+                  if (table.status == TableStatus.reserved && table.nextReservation != null) ...[
+                    appear(_ReservationCard(reservation: table.nextReservation!)),
+                    const SizedBox(height: 18),
+                  ],
                   appear(Row(
                     children: [
                       Expanded(
@@ -148,7 +153,8 @@ class _TableDetailScreenState extends State<TableDetailScreen> {
               child: Column(
                 children: [
                   // Nút cập nhật trạng thái đơn (hiện chỉ khi đơn đang mở và còn bước tiếp theo)
-                  if (order != null && nextStatus != null) ...[
+                  // Đơn chưa có món (vd vừa nhận bàn không đặt món trước) thì chưa gửi bếp được
+                  if (order != null && nextStatus != null && order.items.isNotEmpty) ...[
                     AppButton(
                       label: _statusActionLabel(nextStatus),
                       icon: _statusActionIcon(nextStatus),
@@ -302,5 +308,62 @@ class _TableDetailScreenState extends State<TableDetailScreen> {
     }
 
     return StatusBadge(label: label, color: color, background: bg);
+  }
+}
+
+/// Thẻ "Khách đặt trước" trên chi tiết bàn: mã, giờ đến, tên + SĐT khách, số khách, tiền cọc.
+/// Nhận bàn làm ở màn Lịch đặt bàn (cùng chỗ với NV Order / Thu ngân / Admin).
+class _ReservationCard extends StatelessWidget {
+  final TableReservationInfo reservation;
+
+  const _ReservationCard({required this.reservation});
+
+  @override
+  Widget build(BuildContext context) {
+    final r = reservation;
+    final muted = TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.4);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      decoration: BoxDecoration(
+        color: AppColors.warningBg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(Icons.event_available_rounded, size: 18, color: AppColors.textPrimary),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text('Khách đặt trước · ${AppFormatters.time(r.dateTime)}',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: AppColors.textPrimary)),
+            ),
+            Text('Mã ${r.code}', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5, color: AppColors.textPrimary)),
+          ]),
+          const SizedBox(height: 8),
+          Text(
+            [r.customerName ?? 'Khách hàng', if (r.customerPhone != null && r.customerPhone!.isNotEmpty) r.customerPhone!]
+                .join(' · '),
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '${r.guestCount} khách · '
+            '${r.depositAmount != null ? 'Đã cọc ${AppFormatters.currency(r.depositAmount!)}' : 'Không cọc'}',
+            style: muted,
+          ),
+          const SizedBox(height: 4),
+          Text('Không mở bàn này cho khách vãng lai. Khi khách tới, nhận bàn ở Lịch đặt bàn.', style: muted),
+          const SizedBox(height: 12),
+          AppButton(
+            label: 'Mở Lịch đặt bàn',
+            icon: Icons.calendar_month_outlined,
+            variant: AppButtonVariant.dark,
+            onPressed: () => Navigator.of(context).pushNamed(AppRoutes.reservationList),
+          ),
+        ],
+      ),
+    );
   }
 }

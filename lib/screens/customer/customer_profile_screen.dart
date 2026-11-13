@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/app_navigator.dart';
 import '../../app/routes.dart';
+import '../../core/session/session_store.dart';
 import '../../data/mock_data.dart';
 import '../../models/customer.dart';
 import '../../theme/app_colors.dart';
@@ -15,8 +16,12 @@ import 'customer_shell.dart';
 class CustomerProfileScreen extends StatelessWidget {
   const CustomerProfileScreen({super.key});
 
+  /// Nghe [SessionStore]: khi hồ sơ được tải lại (điểm mới sau thanh toán) thì vẽ lại thẻ thành viên.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      ListenableBuilder(listenable: SessionStore.instance, builder: (context, _) => _buildContent(context));
+
+  Widget _buildContent(BuildContext context) {
     final user = MockData.currentCustomerUser;
     final customer = MockData.currentCustomer;
 

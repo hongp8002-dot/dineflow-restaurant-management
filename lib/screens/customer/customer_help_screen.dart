@@ -26,7 +26,7 @@ class _CustomerHelpScreenState extends State<CustomerHelpScreen> {
     ),
     (
       q: 'Tôi có thể hủy đặt bàn không?',
-      a: 'Có. Vào "Lịch đặt bàn" → chọn lượt đặt → nhấn Hủy. Chỉ có thể hủy trước giờ hẹn ít nhất 2 tiếng.',
+      a: 'Có. Vào "Lịch đặt bàn" → chọn lượt đặt → nhấn Hủy. Bạn có thể hủy bất cứ lúc nào trước khi được nhận bàn, nhưng tiền cọc (nếu có) sẽ không được hoàn lại. Lưu ý: nhà hàng giữ bàn tối đa 15 phút sau giờ hẹn; đến trễ hơn, lượt đặt tự hủy và không hoàn cọc. Bạn có thể đến sớm tối đa 30 phút nếu bàn đang trống.',
     ),
     (
       // Giữ nội dung khớp với data/loyalty_rules.dart khi đổi quy tắc.
@@ -42,7 +42,9 @@ class _CustomerHelpScreenState extends State<CustomerHelpScreen> {
     ),
     (
       q: 'Đơn đặt trước thanh toán bằng cách nào?',
-      a: 'Khi đặt bàn kèm món trước, bạn thanh toán tiền cọc qua QR hoặc tiền mặt. Phần còn lại thanh toán khi đến nhà hàng.',
+      a: 'Khi đặt bàn kèm món trước, bạn chuyển khoản tiền cọc 50% qua mã QR. Khi bạn đến, nhân viên nhận bàn '
+          'và món đặt trước được thêm sẵn vào đơn; tiền cọc được trừ vào hoá đơn lúc thanh toán. '
+          'Nếu huỷ đặt bàn, tiền cọc không được hoàn lại.',
     ),
   ];
 

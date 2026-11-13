@@ -127,7 +127,7 @@ class _ScanMemberScreenState extends State<ScanMemberScreen> {
                         },
                         onSubmitted: _lookup,
                         decoration: const InputDecoration(
-                          hintText: 'Mã trên thẻ, vd DF-000123',
+                          hintText: 'Mã thành viên, vd DF-MB0004',
                           prefixIcon: Icon(Icons.badge_outlined, size: 20),
                         ),
                       ),

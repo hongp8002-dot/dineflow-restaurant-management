@@ -253,8 +253,14 @@ void main() {
         throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 422)),
       );
 
-      // 6) Hủy đơn -> bàn về trống
-      await orders.updateStatus(order.id, OrderStatus.cancelled);
+      // 6) Hủy đơn (13/11): NV Order không hủy qua đổi trạng thái; Thu ngân hủy kèm lý do -> bàn về trống
+      await expectLater(
+        orders.updateStatus(order.id, OrderStatus.cancelled),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 422)),
+      );
+      await asCashier();
+      await api.patch('/orders/${order.id}/cancel', body: {'reason': 'wrong_entry'});
+      await asStaff();
       final freed = (await tablesRepo.fetch()).firstWhere((t) => t.id == table.id);
       expect(freed.status, TableStatus.empty);
       expect(freed.currentOrderId, isNull);

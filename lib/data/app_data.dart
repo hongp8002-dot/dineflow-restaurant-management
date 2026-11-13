@@ -8,6 +8,7 @@ import 'mock_data.dart';
 import 'order_repository.dart';
 import 'report_repository.dart';
 import 'reservation_repository.dart';
+import 'settings_repository.dart';
 import 'table_repository.dart';
 
 /// Nhóm dữ liệu động cần làm mới thường xuyên (khác thực đơn, ít đổi).
@@ -29,6 +30,7 @@ class AppData {
       _loadMenu(),
       refresh(defaultSources()),
       _loadPromotions(),
+      _loadSettings(),
       if (SessionStore.instance.user?.role == UserRole.customer) _loadFavorites(),
     ]);
 
@@ -60,6 +62,16 @@ class AppData {
       return null;
     } on ApiException catch (e) {
       return 'khuyến mãi: ${e.message}';
+    }
+  }
+
+  /// Tài khoản nhận chuyển khoản + quy tắc thành viên (GET /api/settings).
+  static Future<String?> _loadSettings() async {
+    try {
+      await SettingsRepository.instance.load();
+      return null;
+    } on ApiException catch (e) {
+      return 'cấu hình: ${e.message}';
     }
   }
 

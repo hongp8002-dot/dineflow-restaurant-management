@@ -18,6 +18,15 @@ class ShiftRepository {
     return Shift.fromApiJson(res.map);
   }
 
+  /// Admin: các ca mở trong ngày [date], mới nhất trước (báo cáo ca).
+  Future<List<Shift>> fetchByDate(DateTime date) async {
+    final day = '${date.year.toString().padLeft(4, '0')}-'
+        '${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')}';
+    final res = await _api.get('/shifts', query: {'date': day});
+    return [for (final s in res.list) Shift.fromApiJson(s)];
+  }
+
   /// Mở ca mới với số tiền đầu ca.
   Future<Shift> openShift({required double openingCash}) async {
     final res = await _api.post('/shifts', body: {
